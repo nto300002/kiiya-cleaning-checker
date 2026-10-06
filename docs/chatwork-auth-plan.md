@@ -2,7 +2,7 @@
 
 調査日: 2026-10-06
 
-この文書はChatwork公式資料に基づく**実装提案**。要件定義で確定した「社内IT担当者がChatwork連携の認証設定と資格情報を管理する」という運用を前提とする。OAuth方式の採用と投稿用Chatworkアカウントは、まだ最終決定していない。
+この文書はChatwork公式資料に基づく**実装提案**。要件定義で確定した「社内IT担当者がChatwork連携の認証設定と資格情報を管理する」という運用を前提とする。以下の投稿用アカウント、`offline_access`、送信先ルーム数の提案は、まだ確定要件ではない。
 
 ## 推奨方式
 
@@ -10,24 +10,36 @@
 
 Chatwork公式は認可コード方式をサポートし、コンフィデンシャルクライアントを資格情報を秘匿できるサーバー向けとしている。従来のAPIトークンは有効期限がなくフルアクセス可能と案内されているため、初期案には採用しない。[OAuth 2.0公式資料](https://developer.chatwork.com/docs/oauth) / [APIトークン公式資料](https://developer.chatwork.com/ja/docs/endpoints)
 
+## 3点の提案
+
+| 項目 | 推奨設定 | 公式資料との対応・理由 |
+| --- | --- | --- |
+| 投稿用Chatworkアカウント | API投稿用に**別のChatworkアカウントを1つ**用意し、社内IT担当者が接続を管理する。現場職員個人のアカウントは使わない。 | Chatwork公式ヘルプは、本人のアカウントからのAPI投稿は本人には既読扱いとなり、未読通知を受けたい場合はbotのような別アカウントを案内している。別アカウントが対象ルームのメンバーで、投稿権限とAPI利用権限を持つことを確認する。[API投稿の未読通知](https://help.chatwork.com/hc/ja/articles/900001985863-API%E7%B5%8C%E7%94%B1%E3%81%AE%E6%8A%95%E7%A8%BF%E3%81%8C%E6%9C%AA%E8%AA%AD%E3%81%AB%E3%81%AA%E3%82%89%E3%81%AA%E3%81%84-%E6%9C%AA%E8%AA%AD%E9%80%9A%E7%9F%A5%E3%81%8C%E6%9D%A5%E3%81%AA%E3%81%84) / [API利用申請](https://help.chatwork.com/hc/ja/articles/115000169501-API%E3%81%AE%E5%88%A9%E7%94%A8%E7%94%B3%E8%AB%8B%E3%82%92%E6%89%BF%E8%AA%8D-%E5%8D%B4%E4%B8%8B%E3%81%99%E3%82%8B) |
+| 長期接続 | サーバー側のOAuthコンフィデンシャルクライアントで`offline_access`を使う。リフレッシュトークンは暗号化してサーバーだけで保管し、IT担当者が接続状態と再接続を管理する。 | 公式資料は`offline_access`を、認可した人が不在でもAPIアクセスする用途向けと説明する。通常のリフレッシュトークンは14日、`offline_access`付きは認可失効まで有効。長寿命になるリスクも明記されている。現場職員がIT担当者不在時にも報告する本アプリには適合する。[OAuth 2.0公式資料](https://developer.chatwork.com/docs/oauth) |
+| 送信先ルーム | 初期版では**有効な送信先を1ルーム**にする。IT担当者のみがridを登録・変更でき、設定時にルーム名を取得して確認する。現場職員には送信前にルーム名を表示し、毎回の自由な宛先選択は設けない。 | 公式APIはルーム一覧とルームIDごとの情報取得を提供しており、1ルーム制限は**本アプリの運用設計**。現在のKIIYAの報告先を固定すると誤送信を抑えやすい。複数ルームが必要になれば、IT担当者が承認したルームだけを候補にする。[ルーム一覧](https://developer.chatwork.com/reference/get-rooms) / [ルーム情報](https://developer.chatwork.com/reference/get-rooms-room_id) |
+
+別アカウントを作る場合は別のメールアドレスが必要。組織契約の有料プランでは1ユーザーにつき1ライセンスが必要なため、追加分の契約状況を社内で確認する。[複数アカウント](https://help.chatwork.com/hc/ja/articles/203353800-%E8%A4%87%E6%95%B0%E3%82%A2%E3%82%AB%E3%82%A6%E3%83%B3%E3%83%88%E3%81%A7%E5%88%A9%E7%94%A8%E3%81%99%E3%82%8B) / [ユーザー数とライセンス数](https://help.chatwork.com/hc/ja/articles/203353810-%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E6%95%B0-%E3%83%A9%E3%82%A4%E3%82%BB%E3%83%B3%E3%82%B9%E6%95%B0%E3%81%A8%E3%81%AF)
+
+投稿用アカウントを停止するとOAuthトークンも削除されるため、運用中は有効な状態を保つ。停止・廃止する場合は、先に新しい投稿用アカウントへ接続を切り替える。[ユーザー停止時のAPI・OAuth](https://help.chatwork.com/hc/ja/articles/4404802517529-%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E5%81%9C%E6%AD%A2%E6%A9%9F%E8%83%BD%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6)
+
 ## 実装リスト
 
-1. **Chatwork APIの利用を準備する。** 社内IT担当者が、投稿に使うChatworkアカウントを決め、そのアカウントの対象ルーム参加・投稿権限を確認する。パーソナルプラン以外ではChatwork API利用を組織管理者へ申請する。[利用開始方法](https://developer.chatwork.com/docs/getting-started)
+1. **Chatwork APIの利用を準備する。** 投稿用の別アカウントを1つ用意し、対象ルームへの参加・投稿権限を確認する。組織契約では投稿用アカウントからAPI利用を組織管理者へ申請する。[利用開始方法](https://developer.chatwork.com/docs/getting-started) / [API利用申請](https://help.chatwork.com/hc/ja/articles/115000169501-API%E3%81%AE%E5%88%A9%E7%94%A8%E7%94%B3%E8%AB%8B%E3%82%92%E6%89%BF%E8%AA%8D-%E5%8D%B4%E4%B8%8B%E3%81%99%E3%82%8B)
 2. **OAuthクライアントを登録する。** Chatworkにコンフィデンシャルクライアントを登録し、サーバーのHTTPSコールバックURLを設定する。クライアントIDとシークレットはサーバーの秘密情報管理に置き、リポジトリやスマートフォンへ含めない。[OAuthクライアント登録](https://developer.chatwork.com/docs/oauth)
-3. **必要なスコープだけ要求する。** ルーム名の確認に`rooms.info:read`、本文投稿に`rooms.messages:write`、PDF・`.md`添付に`rooms.files:write`を使う。接続中のChatworkアカウント表示には`users.profile.me:read`を加える。IT担当者が不在でも現場から報告できるようにする案では`offline_access`も使う。これらは公式スコープ表から選んだ実装案。[OAuthスコープ一覧](https://developer.chatwork.com/docs/oauth)
+3. **必要なスコープだけ要求する。** ルーム名の確認に`rooms.info:read`、本文投稿に`rooms.messages:write`、PDF・`.md`添付に`rooms.files:write`を使う。接続中のChatworkアカウント表示に`users.profile.me:read`、IT担当者不在時の接続継続に`offline_access`を加える。これらは公式スコープ表から選んだ実装案。[OAuthスコープ一覧](https://developer.chatwork.com/docs/oauth)
 4. **IT担当者だけが接続を開始できるようにする。** 本アプリのGoogleログイン後、登録された社内IT担当者ロールだけに「Chatworkを接続・再接続・解除」を表示する。接続時はChatworkの同意画面へ遷移し、返却された認可コードと`state`をコールバックで検証する。コンフィデンシャルクライアントでもPKCEの`S256`を併用する案とする。[OAuth認可フロー](https://developer.chatwork.com/docs/oauth)
 5. **トークンをサーバーで取得・保管・更新する。** コールバックで認可コードをアクセストークンとリフレッシュトークンに交換する。保存時は暗号化し、IT担当者のみが接続状態を管理できるようにする。アクセストークンは公式資料では30分、通常のリフレッシュトークンは14日、`offline_access`を含む場合は認可失効まで有効とされる。更新・失効時は再接続を案内する。[トークン発行・更新](https://developer.chatwork.com/docs/oauth)
 6. **サーバーからBearer認証でAPIを呼ぶ。** OAuthでは`Authorization: Bearer <access_token>`を使う。従来のAPIトークン方式の`x-chatworktoken`とは使い分ける。トークン値を画面、PDF、ログ、URL、GitHubに出さない。[OAuth APIアクセス](https://developer.chatwork.com/docs/oauth) / [従来のAPIトークン方式](https://developer.chatwork.com/ja/docs/endpoints)
-7. **設定画面で送信先を検証する。** IT担当者がridを設定したときに`GET /rooms/{room_id}`でルーム名を取得し、設定画面にrid・ルーム名・接続中のChatworkアカウントを表示する。権限不足や未参加なら設定を有効化しない。[ルーム情報取得](https://developer.chatwork.com/reference/get-rooms-room_id)
+7. **設定画面で送信先を検証する。** IT担当者が唯一の有効なridを設定したときに`GET /rooms/{room_id}`でルーム名を取得し、設定画面にrid・ルーム名・接続中のChatworkアカウントを表示する。権限不足や未参加なら設定を有効化しない。現場職員には送信前にルーム名を表示する。[ルーム情報取得](https://developer.chatwork.com/reference/get-rooms-room_id)
 8. **送信形式に応じて投稿する。** 本文記載のMarkdownは`POST /rooms/{room_id}/messages`、PDFまたは`.md`添付は`POST /rooms/{room_id}/files`を使う。ファイルアップロード上限は公式資料で5MB。送信前に宛先、本文、添付ファイル、報告IDを確認する。[メッセージ投稿](https://developer.chatwork.com/reference/post-rooms-room_id-messages) / [ファイルアップロード](https://developer.chatwork.com/reference/post-rooms-room_id-files)
 9. **失敗と二重送信を扱う。** 401では接続状態を確認して更新・再接続へ誘導し、403では対象ルームへの参加・権限・スコープを確認する。429ではAPIのリセット情報を使って送信待ちにする。タイムアウトなどで成否不明なら自動再送せず、報告IDと送信状態を残す。[メッセージ投稿のエラー](https://developer.chatwork.com/reference/post-rooms-room_id-messages) / [利用回数制限](https://developer.chatwork.com/ja/docs/endpoints)
 10. **管理記録と受け入れ確認を用意する。** 接続・再接続・解除の操作をしたIT担当者、接続したChatworkアカウント、rid、送信結果を記録する。秘密情報そのものは記録しない。接続、ルーム名表示、本文投稿、PDF添付、`.md`添付、期限切れ後の更新、権限不足、オフライン後の手動送信を確認する。
 
-## 実装前に決めること
+## 提案を採用する際の確認
 
-- **投稿用アカウント**: IT担当者自身のChatworkアカウントを使うか、運用用に指定した別アカウントを使うか。どちらも対象ルームへの参加・投稿権限が必要。
-- **長期接続**: `offline_access`で長期接続するか、使わずにリフレッシュトークン失効時にIT担当者が再認可する運用にするか。無期限のリフレッシュトークンを使う場合は、その保管・失効時の対応を厳格にする。
-- **接続先の範囲**: ridを1つに固定するか、複数ルームをIT担当者が登録できるようにするか。
+- 投稿用の別アカウントに使うメールアドレス、組織契約での追加ライセンス、対象ルームへの参加・投稿権限。
+- `offline_access`の長寿命リフレッシュトークンを保管するサーバー環境と、接続解除・再接続を扱う社内IT担当者。
+- 初期版の送信先とする1ルームのrid・ルーム名、将来複数ルームが必要になったときの登録権限。
 
 ## 公式資料
 
@@ -37,3 +49,7 @@ Chatwork公式は認可コード方式をサポートし、コンフィデンシ
 - [ルーム情報取得](https://developer.chatwork.com/reference/get-rooms-room_id)
 - [メッセージ投稿](https://developer.chatwork.com/reference/post-rooms-room_id-messages)
 - [ファイルアップロード](https://developer.chatwork.com/reference/post-rooms-room_id-files)
+- [API投稿の未読通知](https://help.chatwork.com/hc/ja/articles/900001985863-API%E7%B5%8C%E7%94%B1%E3%81%AE%E6%8A%95%E7%A8%BF%E3%81%8C%E6%9C%AA%E8%AA%AD%E3%81%AB%E3%81%AA%E3%82%89%E3%81%AA%E3%81%84-%E6%9C%AA%E8%AA%AD%E9%80%9A%E7%9F%A5%E3%81%8C%E6%9D%A5%E3%81%AA%E3%81%84)
+- [API利用申請](https://help.chatwork.com/hc/ja/articles/115000169501-API%E3%81%AE%E5%88%A9%E7%94%A8%E7%94%B3%E8%AB%8B%E3%82%92%E6%89%BF%E8%AA%8D-%E5%8D%B4%E4%B8%8B%E3%81%99%E3%82%8B)
+- [チャット一覧](https://developer.chatwork.com/reference/get-rooms)
+- [ユーザー停止時のAPI・OAuth](https://help.chatwork.com/hc/ja/articles/4404802517529-%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E5%81%9C%E6%AD%A2%E6%A9%9F%E8%83%BD%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6)
