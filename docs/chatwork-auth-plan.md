@@ -2,7 +2,7 @@
 
 調査日: 2026-10-06
 
-この文書はChatwork公式資料に基づく実装整理。**OAuth 2.0認可コード方式、`offline_access`、既存社員1名の投稿用アカウント、初期版の送信先1ルーム、登録された社内IT担当者による連携管理は確定要件**。サーバー環境と秘密情報管理サービス、投稿用社員の特定、実際のridは未決定。
+この文書はChatwork公式資料に基づく実装整理。**OAuth 2.0認可コード方式、`offline_access`、既存社員1名の投稿用アカウント、初期版の送信先1ルーム、登録された社内IT担当者による連携管理は確定要件**。Google Cloud RunとSecret Managerは[サーバー環境・秘密情報・権限設計](infrastructure-and-access.md)で選定済み。投稿用社員の特定と本番ridは本番手動テスト時に行う。
 
 ## 採用方式と実装案
 
@@ -43,18 +43,18 @@ Chatwork公式は認可コード方式をサポートし、コンフィデンシ
 10. **マスタ変更通知は自動再通知する。** 失敗・結果不明は送信失敗扱いで各試行を履歴に残し、変更者本人へアプリ内アラートを出す。通知本文には一意の変更IDを含める。結果不明なら再通知前に`GET /rooms/{room_id}/messages?force=1`で直近メッセージを照合し、既存投稿が見つかればその投稿日時を成功日とする。見つからなければ、失敗・結果不明の判定から5分後に再通知し、初回送信に加えて最大2回まで試す。計3回とも成功せず投稿済みとも確認できなければ変更不成立として打ち切る。通知と各試行の履歴は最終結果確定から1週間保存する。公式の投稿APIに冪等キーは記載されず、取得APIで確認できる範囲も直近100件までなので、重複投稿を完全には防げない。新版は実際に成功した送信日（日本時間）の翌日から適用する。[メッセージ投稿](https://developer.chatwork.com/reference/post-rooms-room_id-messages) / [メッセージ取得](https://developer.chatwork.com/reference/get-rooms-room_id-messages)
 11. **管理記録と受け入れ確認を用意する。** 接続・再接続・解除の操作をしたIT担当者、接続したChatworkアカウント、rid、送信結果を記録する。秘密情報そのものは記録しない。接続、ルーム名表示、本文投稿、PDF添付、`.md`添付、期限切れ後の更新、権限不足、オフライン後の手動送信、マスタ通知の自動再通知と適用日を確認する。
 
-## 連携資格情報の保存方式の推奨案（サーバー環境の選定後に確定）
+## 連携資格情報の保存方式〔決定〕
 
-社内にはAWS環境がないため、AWS構成は候補に含めない。現時点ではGoogle Cloud RunとSecret Managerを推奨するが、Google Cloudの採用はまだ確定していない。
+社内にはAWS環境がないため、Google Cloud RunとSecret Managerを採用する。検証環境と本番環境を別プロジェクトに分ける。実際のプロジェクトIDと環境管理担当者は構築時に登録する。
 
 - 保存対象はOAuthクライアントシークレットと`offline_access`付きリフレッシュトークン。クライアントID、接続中の社員アカウント識別子、rid、秘密情報への参照は設定データに保持できる。短寿命のアクセストークンはサーバー側で使用し、スマートフォンや通常ログには渡さない。
-- **Google Cloud案**: Cloud Runの専用サービスアカウントに、Secret Manager内の`kiiya-chatwork-client-secret`と`kiiya-chatwork-refresh-token`の読み取り権限を付ける。リフレッシュトークンのシークレットに限り、新しい版の追加権限も付ける。アプリは実行時にSecret Manager APIから値を取得し、トークン再発行で新しい値を受けたら新しい版として保存する。IT担当者はアプリ上で接続状態・再接続を管理し、シークレット値自体は表示しない。[Secret Managerの推奨事項](https://docs.cloud.google.com/secret-manager/docs/best-practices) / [Secret Version Adder](https://docs.cloud.google.com/secret-manager/docs/access-control)
-- 本番と検証環境で秘密値を分け、資格情報をソースコード、GitHub、端末、報告書、通知本文、通常ログへ保存しない。採用するサーバー環境、具体的な権限設定、トークン更新時の版管理は技術設計で確定する。
+- Cloud Runの専用サービスアカウントに、Secret Manager内の`kiiya-chatwork-client-secret`と`kiiya-chatwork-refresh-token`の読み取り権限を付ける。リフレッシュトークンのシークレットに限り、新しい版の追加権限も付ける。アプリは実行時にSecret Manager APIから値を取得し、トークン再発行で新しい値を受けたら新しい版として保存する。IT担当者はアプリ上で接続状態・再接続を管理し、シークレット値自体は表示しない。[Secret Managerの推奨事項](https://docs.cloud.google.com/secret-manager/docs/best-practices) / [Secret Version Adder](https://docs.cloud.google.com/secret-manager/docs/access-control)
+- 本番と検証環境で秘密値を分け、資格情報をソースコード、GitHub、端末、報告書、通知本文、通常ログへ保存しない。初期版ではグローバルのSecret Managerを使う。権限の範囲は[サーバー環境・秘密情報・権限設計](infrastructure-and-access.md)に定める。
 
 ## 実装前に特定する項目
 
 - 投稿用アカウントに指定する既存社員、本人への未読通知の運用、異動時の再接続手順。対象ルームへの参加・投稿権限が必要。
-- `offline_access`の長寿命リフレッシュトークンを保管するサーバー環境と秘密情報管理サービス。
+- 検証用・本番用のGoogle CloudプロジェクトID、請求先、環境管理担当者。
 - 検証用ridは提供済みで、リポジトリに含めないローカルのテスト設定へ保存する。実際の送信前には、認証済みアカウントがそのルームに参加・投稿でき、取得したルーム名が意図した宛先と一致することを確認する。
 - 本番で投稿用に使う既存社員と本番ridは、本番手動テスト時に指定・確認する。検証環境と本番環境はそれぞれ有効な送信先を1ルームとする。
 
