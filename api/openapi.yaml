@@ -1,0 +1,641 @@
+openapi: 3.1.1
+info:
+  title: KIIYA Cleaning Checker API
+  version: 0.1.0-draft
+  description: 実装前のAPI契約。未確定の判断はdocs/api-design.mdに記載。
+servers:
+  - url: https://api.example.invalid
+    description: 配備時に環境ごとの実URLへ置換する
+security:
+  - googleIdToken: []
+tags:
+  - name: User
+  - name: Master
+  - name: Work
+  - name: Report
+  - name: Chatwork
+  - name: Alerts
+paths:
+  /v1/me:
+    get:
+      tags: [User]
+      operationId: getMe
+      responses:
+        '200':
+          description: 現在の利用者
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppUser' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/name-suggestions:
+    get:
+      tags: [User]
+      operationId: listNameSuggestions
+      parameters:
+        - { name: query, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 全利用者で共有する氏名候補
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [names]
+                properties:
+                  names: { type: array, items: { type: string } }
+  /v1/master-revisions/current:
+    get:
+      tags: [Master]
+      operationId: getCurrentMasterRevision
+      parameters:
+        - { name: workDate, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: 指定作業日に有効なマスタ版
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterRevision' }
+  /v1/master-revisions/{revisionId}:
+    get:
+      tags: [Master]
+      operationId: getMasterRevision
+      parameters:
+        - { $ref: '#/components/parameters/RevisionId' }
+      responses:
+        '200':
+          description: 固定されたマスタ版
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterRevision' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/work-records:
+    get:
+      tags: [Work]
+      operationId: listWorkRecords
+      parameters:
+        - { name: archived, in: query, schema: { type: boolean, default: false } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 作業記録一覧。archived=trueは過去日付。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/WorkSummary' } }
+                  nextCursor: { type: [string, 'null'] }
+    post:
+      tags: [Work]
+      operationId: createWorkRecord
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWorkRecord' }
+      responses:
+        '201':
+          description: 作業開始。masterRevisionIdを固定。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkRecord' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/work-records/{workId}:
+    parameters:
+      - { $ref: '#/components/parameters/WorkId' }
+    get:
+      tags: [Work]
+      operationId: getWorkRecord
+      description: 編集用。対象から外した箇所の保存済み結果も含む。
+      responses:
+        '200':
+          description: 作業記録
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkRecord' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Work]
+      operationId: updateWorkRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateWorkRecord' }
+      responses:
+        '200':
+          description: 保存後の作業記録
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkRecord' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/work-records/{workId}/history:
+    get:
+      tags: [Work]
+      operationId: getWorkHistory
+      parameters:
+        - { $ref: '#/components/parameters/WorkId' }
+      responses:
+        '200':
+          description: 表示対象の箇所のみ含む履歴
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkHistory' }
+  /v1/work-records/{workId}/readiness:
+    get:
+      tags: [Work]
+      operationId: getWorkReadiness
+      parameters:
+        - { $ref: '#/components/parameters/WorkId' }
+      responses:
+        '200':
+          description: 報告可能かと不足項目。休憩のはい・いいえは回答済み、未回答は不足。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+  /v1/work-records/{workId}/report-button-press:
+    post:
+      tags: [Report]
+      operationId: pressReportButton
+      parameters:
+        - { $ref: '#/components/parameters/WorkId' }
+      responses:
+        '200':
+          description: 初回押下時刻。以後の押下では同じ値を返す。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [firstReportButtonPressedAt, pastDateConfirmationRequired]
+                properties:
+                  firstReportButtonPressedAt: { type: string, format: date-time }
+                  pastDateConfirmationRequired: { type: boolean }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/work-records/{workId}/report-preview:
+    post:
+      tags: [Report]
+      operationId: createReportPreview
+      description: 結果画面用の一時プレビュー。報告ボタン初回押下時刻や報告版を作らない。
+      parameters:
+        - { $ref: '#/components/parameters/WorkId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [format]
+              properties:
+                format: { type: string, enum: [pdf, markdown] }
+      responses:
+        '200':
+          description: 現在の作業内容に基づくプレビュー
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sourceRevision, format, previewId]
+                properties:
+                  sourceRevision: { type: integer, minimum: 1 }
+                  format: { type: string, enum: [pdf, markdown] }
+                  previewId: { type: string }
+                  markdownText: { type: string }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/report-previews/{previewId}/content:
+    get:
+      tags: [Report]
+      operationId: getReportPreviewContent
+      parameters:
+        - { name: previewId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: PDFまたはMarkdownのプレビュー内容
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+            text/markdown:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/work-records/{workId}/report-versions:
+    get:
+      tags: [Report]
+      operationId: listReportVersions
+      parameters:
+        - { $ref: '#/components/parameters/WorkId' }
+      responses:
+        '200':
+          description: 報告版一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ReportVersion' } }
+    post:
+      tags: [Report]
+      operationId: submitReportVersion
+      description: 確認ダイアログの「完了」に対応。202は投稿成功を意味しない。
+      parameters:
+        - { $ref: '#/components/parameters/WorkId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceRevision, format, pastDateConfirmed]
+              properties:
+                sourceRevision: { type: integer, minimum: 1 }
+                format: { type: string, enum: [pdf, markdown] }
+                pastDateConfirmed: { type: boolean }
+      responses:
+        '202':
+          description: 不変の報告版を作り、送信処理を開始
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportVersion' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/report-versions/{reportId}:
+    get:
+      tags: [Report]
+      operationId: getReportVersion
+      parameters:
+        - { $ref: '#/components/parameters/ReportId' }
+      responses:
+        '200':
+          description: 報告版と現在の送信結果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportVersion' }
+  /v1/report-versions/{reportId}/verification:
+    post:
+      tags: [Report]
+      operationId: verifyReportDelivery
+      description: 当日担当職員またはIT担当者が投稿の有無を確認し、確認者・日時・根拠を保存する。
+      parameters:
+        - { $ref: '#/components/parameters/ReportId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [posted, evidence]
+              properties:
+                posted: { type: boolean }
+                evidence: { type: string, minLength: 1 }
+                chatworkMessageId: { type: string }
+      responses:
+        '200':
+          description: 確認結果を反映した版
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportVersion' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/settings/chatwork:
+    get:
+      tags: [Chatwork]
+      operationId: getChatworkSettings
+      responses:
+        '200':
+          description: 秘密値を含まない設定
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatworkSettings' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [Chatwork]
+      operationId: putChatworkSettings
+      description: IT担当者のみ。roomIdからルーム名を取得し確認する。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roomId, markdownDelivery]
+              properties:
+                roomId: { type: string, pattern: '^[0-9]+$' }
+                markdownDelivery: { type: string, enum: [body, attachment] }
+                reportTemplate: { type: string }
+      responses:
+        '200':
+          description: 設定した唯一の送信先と取得したルーム名
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatworkSettings' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/settings/chatwork/oauth/start:
+    post:
+      tags: [Chatwork]
+      operationId: startChatworkOAuth
+      responses:
+        '200':
+          description: 認可URL。stateとPKCE verifierはサーバー側で保持。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizationUrl]
+                properties:
+                  authorizationUrl: { type: string, format: uri }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/settings/chatwork/oauth/callback:
+    get:
+      tags: [Chatwork]
+      operationId: finishChatworkOAuth
+      security: []
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: state, in: query, required: true, schema: { type: string } }
+      responses:
+        '303':
+          description: 接続結果を設定画面へリダイレクト。tokenはURLに含めない。
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /v1/master-changes:
+    post:
+      tags: [Master]
+      operationId: createMasterChange
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMasterChange' }
+      responses:
+        '201':
+          description: 変更候補
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterChange' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/master-changes/{changeId}:
+    get:
+      tags: [Master]
+      operationId: getMasterChange
+      parameters:
+        - { $ref: '#/components/parameters/ChangeId' }
+      responses:
+        '200':
+          description: 変更状態と保存期間内の通知試行結果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterChange' }
+  /v1/master-changes/{changeId}/submit:
+    post:
+      tags: [Master]
+      operationId: submitMasterChange
+      parameters:
+        - { $ref: '#/components/parameters/ChangeId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+        '202':
+          description: Chatwork通知処理を開始。新版はまだ適用しない。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterChange' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/alerts:
+    get:
+      tags: [Alerts]
+      operationId: listMyAlerts
+      responses:
+        '200':
+          description: 自分宛のアラートのみ
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/AppAlert' } }
+  /v1/alerts/{alertId}/ack:
+    post:
+      tags: [Alerts]
+      operationId: acknowledgeMyAlert
+      parameters:
+        - { name: alertId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 自分宛アラートの確認日時を記録
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppAlert' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    googleIdToken:
+      type: http
+      scheme: bearer
+      bearerFormat: Google ID Token
+  parameters:
+    WorkId: { name: workId, in: path, required: true, schema: { type: string } }
+    RevisionId: { name: revisionId, in: path, required: true, schema: { type: string } }
+    ReportId: { name: reportId, in: path, required: true, schema: { type: string } }
+    ChangeId: { name: changeId, in: path, required: true, schema: { type: string } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1 } }
+  responses:
+    Unauthorized: { description: ログインが無効 }
+    Forbidden: { description: 操作権限がない }
+    NotFound: { description: 対象が存在しない、または閲覧権限がない }
+    Conflict: { description: 更新番号・状態・冪等キーが競合 }
+    ValidationError: { description: 入力内容または業務条件を満たさない }
+    Unavailable: { description: 送信先またはサーバーが一時利用不可 }
+  schemas:
+    AppUser:
+      type: object
+      required: [id, displayName, roles]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        roles: { type: array, items: { type: string, enum: [staff, it_admin] } }
+    MasterRevision:
+      type: object
+      required: [id, effectiveDate, areas]
+      properties:
+        id: { type: string }
+        effectiveDate: { type: string, format: date }
+        areas:
+          type: array
+          items:
+            type: object
+            required: [code, name, alwaysSelected, hasDryer, checklistItems]
+            properties:
+              code: { type: string }
+              name: { type: string }
+              alwaysSelected: { type: boolean }
+              hasDryer: { type: boolean }
+              checklistItems: { type: array, items: { type: string } }
+              capacity: { type: integer, minimum: 0 }
+    CreateWorkRecord:
+      type: object
+      required: [workDate, onDutyEmployeeName, staffCount, participants]
+      properties:
+        workDate: { type: string, format: date }
+        onDutyEmployeeName: { type: string, minLength: 1 }
+        staffCount: { type: integer, minimum: 1, maximum: 5 }
+        participants: { type: array, minItems: 1, maxItems: 5, items: { type: string, minLength: 1 } }
+    WorkArea:
+      type: object
+      required: [code, selected, assignees, checks]
+      properties:
+        code: { type: string }
+        selected: { type: boolean }
+        assignees: { type: array, items: { type: string } }
+        checks:
+          type: object
+          additionalProperties: { type: boolean }
+        roomStay:
+          type: object
+          properties:
+            guests: { type: integer, minimum: 0 }
+            children: { type: integer, minimum: 0 }
+            consecutiveStay: { type: boolean }
+            exceptionNote: { type: string }
+    WorkRecord:
+      type: object
+      required: [id, revision, workDate, masterRevisionId, status, onDutyEmployeeName, staffCount, participants, areas, breakTaken]
+      properties:
+        id: { type: string }
+        revision: { type: integer, minimum: 1 }
+        workDate: { type: string, format: date }
+        masterRevisionId: { type: string }
+        status: { type: string, enum: [Editing, Ready, Reporting, VerificationNeeded, Completed] }
+        onDutyEmployeeName: { type: string }
+        staffCount: { type: integer, minimum: 1, maximum: 5 }
+        participants: { type: array, items: { type: string } }
+        areas: { type: array, items: { $ref: '#/components/schemas/WorkArea' } }
+        breakTaken: { type: [boolean, 'null'] }
+        remarks: { type: string }
+        trouble: { type: string }
+        firstReportButtonPressedAt: { type: [string, 'null'], format: date-time }
+    UpdateWorkRecord:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        onDutyEmployeeName: { type: string, minLength: 1 }
+        staffCount: { type: integer, minimum: 1, maximum: 5 }
+        participants: { type: array, minItems: 1, maxItems: 5, items: { type: string, minLength: 1 } }
+        areas: { type: array, items: { $ref: '#/components/schemas/WorkArea' } }
+        breakTaken: { type: [boolean, 'null'] }
+        remarks: { type: string }
+        trouble: { type: string }
+    WorkSummary:
+      type: object
+      required: [id, workDate, status, archived]
+      properties:
+        id: { type: string }
+        workDate: { type: string, format: date }
+        status: { type: string }
+        archived: { type: boolean }
+    WorkHistory:
+      type: object
+      required: [id, workDate, areas, reportVersions]
+      properties:
+        id: { type: string }
+        workDate: { type: string, format: date }
+        areas: { type: array, items: { $ref: '#/components/schemas/WorkArea' } }
+        reportVersions: { type: array, items: { $ref: '#/components/schemas/ReportVersion' } }
+    Readiness:
+      type: object
+      required: [ready, missing]
+      properties:
+        ready: { type: boolean }
+        missing: { type: array, items: { type: string } }
+    ReportVersion:
+      type: object
+      required: [id, workId, sequence, status, format, sourceRevision, createdAt]
+      properties:
+        id: { type: string }
+        workId: { type: string }
+        sequence: { type: integer, minimum: 1 }
+        previousVersionId: { type: [string, 'null'] }
+        status: { type: string, enum: [Sending, Sent, Failed, Unknown] }
+        format: { type: string, enum: [pdf, markdown] }
+        markdownDelivery: { type: [string, 'null'], enum: [body, attachment, null] }
+        sourceRevision: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        sentAt: { type: [string, 'null'], format: date-time }
+        chatworkMessageId: { type: [string, 'null'] }
+        pastDate: { type: boolean }
+    ChatworkSettings:
+      type: object
+      required: [connected, markdownDelivery]
+      properties:
+        connected: { type: boolean }
+        postingAccountName: { type: [string, 'null'] }
+        roomId: { type: [string, 'null'] }
+        roomName: { type: [string, 'null'] }
+        markdownDelivery: { type: string, enum: [body, attachment], default: body }
+        reportTemplate: { type: string }
+    CreateMasterChange:
+      type: object
+      required: [workId, baseRevisionId, candidate, onDutyEmployeeName, approvalDeclared, kiiyaApproverName, employeeApproverName]
+      properties:
+        workId: { type: string }
+        baseRevisionId: { type: string }
+        candidate: { $ref: '#/components/schemas/MasterCandidate' }
+        onDutyEmployeeName: { type: string, minLength: 1 }
+        approvalDeclared: { type: boolean, const: true }
+        kiiyaApproverName: { type: string, minLength: 1 }
+        employeeApproverName: { type: string, minLength: 1 }
+    MasterCandidate:
+      type: object
+      required: [areas]
+      description: 通知成功日と適用開始日をまだ持たない変更候補。
+      properties:
+        areas:
+          type: array
+          items:
+            type: object
+            required: [code, name, alwaysSelected, hasDryer, checklistItems]
+            properties:
+              code: { type: string }
+              name: { type: string }
+              alwaysSelected: { type: boolean }
+              hasDryer: { type: boolean }
+              checklistItems: { type: array, items: { type: string } }
+              capacity: { type: integer, minimum: 0 }
+    MasterChange:
+      type: object
+      required: [id, status, baseRevisionId, attempts]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [Draft, Ready, AwaitingNotification, Scheduled, Applied, ChangeFailed] }
+        baseRevisionId: { type: string }
+        effectiveDate: { type: [string, 'null'], format: date }
+        attempts:
+          type: array
+          items:
+            type: object
+            required: [number, result]
+            properties:
+              number: { type: integer, minimum: 1, maximum: 3 }
+              result: { type: string, enum: [Pending, Sending, Sent, Failed, Unknown] }
+              attemptedAt: { type: [string, 'null'], format: date-time }
+    AppAlert:
+      type: object
+      required: [id, changeId, message, createdAt]
+      properties:
+        id: { type: string }
+        changeId: { type: string }
+        message: { type: string }
+        createdAt: { type: string, format: date-time }
+        acknowledgedAt: { type: [string, 'null'], format: date-time }
