@@ -43,12 +43,13 @@ Chatwork公式は認可コード方式をサポートし、コンフィデンシ
 10. **マスタ変更通知は自動再通知する。** 失敗・結果不明は送信失敗扱いで各試行を履歴に残し、変更者本人へアプリ内アラートを出す。通知本文には一意の変更IDを含める。結果不明なら再通知前に`GET /rooms/{room_id}/messages?force=1`で直近メッセージを照合し、既存投稿が見つかればその投稿日時を成功日とする。見つからなければ、失敗・結果不明の判定から5分後に再通知し、初回送信に加えて最大2回まで試す。計3回とも成功せず投稿済みとも確認できなければ変更不成立として打ち切る。通知と各試行の履歴は最終結果確定から1週間保存する。公式の投稿APIに冪等キーは記載されず、取得APIで確認できる範囲も直近100件までなので、重複投稿を完全には防げない。新版は実際に成功した送信日（日本時間）の翌日から適用する。[メッセージ投稿](https://developer.chatwork.com/reference/post-rooms-room_id-messages) / [メッセージ取得](https://developer.chatwork.com/reference/get-rooms-room_id-messages)
 11. **管理記録と受け入れ確認を用意する。** 接続・再接続・解除の操作をしたIT担当者、接続したChatworkアカウント、rid、送信結果を記録する。秘密情報そのものは記録しない。接続、ルーム名表示、本文投稿、PDF添付、`.md`添付、期限切れ後の更新、権限不足、オフライン後の手動送信、マスタ通知の自動再通知と適用日を確認する。
 
-## 連携資格情報の保存方式の具体例（サーバー環境の選定後に確定）
+## 連携資格情報の保存方式の推奨案（サーバー環境の選定後に確定）
+
+社内にはAWS環境がないため、AWS構成は候補に含めない。現時点ではGoogle Cloud RunとSecret Managerを推奨するが、Google Cloudの採用はまだ確定していない。
 
 - 保存対象はOAuthクライアントシークレットと`offline_access`付きリフレッシュトークン。クライアントID、接続中の社員アカウント識別子、rid、秘密情報への参照は設定データに保持できる。短寿命のアクセストークンはサーバー側で使用し、スマートフォンや通常ログには渡さない。
-- **Google Cloudで運用する例**: Cloud Runの専用サービスアカウントに、Secret Manager内の`kiiya-chatwork-client-secret`と`kiiya-chatwork-refresh-token`の読み取り権限を付ける。リフレッシュトークンのシークレットに限り、新しい版の追加権限も付ける。アプリは実行時にSecret Manager APIから値を取得し、トークン再発行で新しい値を受けたら新しい版として保存する。IT担当者はアプリ上で接続状態・再接続を管理し、シークレット値自体は表示しない。[Secret Managerの推奨事項](https://docs.cloud.google.com/secret-manager/docs/best-practices) / [Secret Version Adder](https://docs.cloud.google.com/secret-manager/docs/access-control)
-- **AWSで運用する例**: AWS Secrets Managerに同じ2種類の秘密値を保存し、アプリ実行ロールには対象シークレットの読み取りと、リフレッシュトークンに限った新しい値の保存権限を与える。保存時の暗号化にはSecrets ManagerとAWS KMSを用いる。[IAMによるアクセス管理](https://docs.aws.amazon.com/secretsmanager/latest/userguide/auth-and-access_iam-policies.html) / [PutSecretValue](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_PutSecretValue.html) / [暗号化](https://docs.aws.amazon.com/secretsmanager/latest/userguide/security-encryption.html)
-- どちらの例でも、本番と検証環境で秘密値を分け、資格情報をソースコード、GitHub、端末、報告書、通知本文、通常ログへ保存しない。採用するクラウド、具体的な権限設定、トークン更新時の版管理は技術設計で確定する。
+- **Google Cloud案**: Cloud Runの専用サービスアカウントに、Secret Manager内の`kiiya-chatwork-client-secret`と`kiiya-chatwork-refresh-token`の読み取り権限を付ける。リフレッシュトークンのシークレットに限り、新しい版の追加権限も付ける。アプリは実行時にSecret Manager APIから値を取得し、トークン再発行で新しい値を受けたら新しい版として保存する。IT担当者はアプリ上で接続状態・再接続を管理し、シークレット値自体は表示しない。[Secret Managerの推奨事項](https://docs.cloud.google.com/secret-manager/docs/best-practices) / [Secret Version Adder](https://docs.cloud.google.com/secret-manager/docs/access-control)
+- 本番と検証環境で秘密値を分け、資格情報をソースコード、GitHub、端末、報告書、通知本文、通常ログへ保存しない。採用するサーバー環境、具体的な権限設定、トークン更新時の版管理は技術設計で確定する。
 
 ## 実装前に特定する項目
 
@@ -60,7 +61,6 @@ Chatwork公式は認可コード方式をサポートし、コンフィデンシ
 
 - [OAuth 2.0について](https://developer.chatwork.com/docs/oauth)
 - [Google Cloud Secret Managerの推奨事項](https://docs.cloud.google.com/secret-manager/docs/best-practices)
-- [AWS Secrets Managerの暗号化](https://docs.aws.amazon.com/secretsmanager/latest/userguide/security-encryption.html)
 - [Chatwork APIへようこそ](https://developer.chatwork.com/docs/getting-started)
 - [エンドポイントについて](https://developer.chatwork.com/ja/docs/endpoints)
 - [ルーム情報取得](https://developer.chatwork.com/reference/get-rooms-room_id)

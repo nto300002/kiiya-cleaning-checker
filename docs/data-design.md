@@ -137,6 +137,6 @@
 ## 7. 次に決める事項
 
 1. マスタ変更の承認記録・変更記録・アプリ内アラートの保存期間。
-2. 投稿用に使う既存社員と実際のrid、サーバー環境・秘密情報管理サービス・権限設定の選定。
+2. 投稿用に使う既存社員と実際のrid、サーバー環境・秘密情報管理サービス・権限設定の選定。社内にAWS環境はなく、Google Cloud RunとSecret Managerは推奨案の段階。
 
 関連文書: [要件定義](requirements.md)、[状態遷移](state-transitions.md)、[Chatwork認証の実装案](chatwork-auth-plan.md)
