@@ -35,14 +35,15 @@ Chatwork公式は認可コード方式をサポートし、コンフィデンシ
 
 1. **Chatwork APIの利用を準備する。** 投稿用アカウントを、別アカウント案または既存社員アカウント案から決め、対象ルームへの参加・投稿権限を確認する。組織契約では投稿用アカウントからAPI利用を組織管理者へ申請する。[利用開始方法](https://developer.chatwork.com/docs/getting-started) / [API利用申請](https://help.chatwork.com/hc/ja/articles/115000169501-API%E3%81%AE%E5%88%A9%E7%94%A8%E7%94%B3%E8%AB%8B%E3%82%92%E6%89%BF%E8%AA%8D-%E5%8D%B4%E4%B8%8B%E3%81%99%E3%82%8B)
 2. **OAuthクライアントを登録する。** Chatworkにコンフィデンシャルクライアントを登録し、サーバーのHTTPSコールバックURLを設定する。クライアントIDとシークレットはサーバーの秘密情報管理に置き、リポジトリやスマートフォンへ含めない。[OAuthクライアント登録](https://developer.chatwork.com/docs/oauth)
-3. **必要なスコープだけ要求する。** ルーム名の確認に`rooms.info:read`、本文投稿に`rooms.messages:write`、PDF・`.md`添付に`rooms.files:write`を使う。接続中のChatworkアカウント表示に`users.profile.me:read`、IT担当者不在時の接続継続に`offline_access`を加える。これらは公式スコープ表から選んだ実装案。[OAuthスコープ一覧](https://developer.chatwork.com/docs/oauth)
+3. **必要なスコープだけ要求する。** ルーム名の確認に`rooms.info:read`、本文投稿に`rooms.messages:write`、PDF・`.md`添付に`rooms.files:write`を使う。マスタ変更通知の結果不明時に直近メッセージで変更IDを照合する案には`rooms.messages:read`も必要。接続中のChatworkアカウント表示に`users.profile.me:read`、IT担当者不在時の接続継続に`offline_access`を加える。これらは公式スコープ表から選んだ実装案。[OAuthスコープ一覧](https://developer.chatwork.com/docs/oauth)
 4. **IT担当者だけが接続を開始できるようにする。** 本アプリのGoogleログイン後、登録された社内IT担当者ロールだけに「Chatworkを接続・再接続・解除」を表示する。接続時はChatworkの同意画面へ遷移し、返却された認可コードと`state`をコールバックで検証する。コンフィデンシャルクライアントでもPKCEの`S256`を併用する案とする。[OAuth認可フロー](https://developer.chatwork.com/docs/oauth)
 5. **トークンをサーバーで取得・保管・更新する。** コールバックで認可コードをアクセストークンとリフレッシュトークンに交換する。保存時は暗号化し、IT担当者のみが接続状態を管理できるようにする。アクセストークンは公式資料では30分、通常のリフレッシュトークンは14日、`offline_access`を含む場合は認可失効まで有効とされる。更新・失効時は再接続を案内する。[トークン発行・更新](https://developer.chatwork.com/docs/oauth)
 6. **サーバーからBearer認証でAPIを呼ぶ。** OAuthでは`Authorization: Bearer <access_token>`を使う。従来のAPIトークン方式の`x-chatworktoken`とは使い分ける。トークン値を画面、PDF、ログ、URL、GitHubに出さない。[OAuth APIアクセス](https://developer.chatwork.com/docs/oauth) / [従来のAPIトークン方式](https://developer.chatwork.com/ja/docs/endpoints)
 7. **設定画面で送信先を検証する。** IT担当者が唯一の有効なridを設定したときに`GET /rooms/{room_id}`でルーム名を取得し、設定画面にrid・ルーム名・接続中のChatworkアカウントを表示する。権限不足や未参加なら設定を有効化しない。現場職員には送信前にルーム名を表示する。[ルーム情報取得](https://developer.chatwork.com/reference/get-rooms-room_id)
 8. **送信形式に応じて投稿する。** 本文記載のMarkdownは`POST /rooms/{room_id}/messages`、PDFまたは`.md`添付は`POST /rooms/{room_id}/files`を使う。ファイルアップロード上限は公式資料で5MB。送信前に宛先、本文、添付ファイル、報告IDを確認する。[メッセージ投稿](https://developer.chatwork.com/reference/post-rooms-room_id-messages) / [ファイルアップロード](https://developer.chatwork.com/reference/post-rooms-room_id-files)
-9. **失敗と二重送信を扱う。** 401では接続状態を確認して更新・再接続へ誘導し、403では対象ルームへの参加・権限・スコープを確認する。429ではAPIのリセット情報を使って送信待ちにする。タイムアウトなどで成否不明なら自動再送せず、報告IDと送信状態を残す。[メッセージ投稿のエラー](https://developer.chatwork.com/reference/post-rooms-room_id-messages) / [利用回数制限](https://developer.chatwork.com/ja/docs/endpoints)
-10. **管理記録と受け入れ確認を用意する。** 接続・再接続・解除の操作をしたIT担当者、接続したChatworkアカウント、rid、送信結果を記録する。秘密情報そのものは記録しない。接続、ルーム名表示、本文投稿、PDF添付、`.md`添付、期限切れ後の更新、権限不足、オフライン後の手動送信を確認する。
+9. **失敗と二重送信を扱う。** 401では接続状態を確認して更新・再接続へ誘導し、403では対象ルームへの参加・権限・スコープを確認する。429ではAPIのリセット情報を使って送信待ちにする。**清掃報告**がタイムアウトなどで成否不明なら自動再送せず、報告IDと送信状態を残す。[メッセージ投稿のエラー](https://developer.chatwork.com/reference/post-rooms-room_id-messages) / [利用回数制限](https://developer.chatwork.com/ja/docs/endpoints)
+10. **マスタ変更通知は自動再通知する。** 失敗・結果不明は送信失敗扱いで各試行を履歴に残し、変更者本人へアプリ内アラートを出す。通知本文には一意の変更IDを含める。結果不明なら再通知前に`GET /rooms/{room_id}/messages?force=1`で直近メッセージを照合し、既存投稿が見つかればその投稿日時を成功日とする。見つからなければ再通知する。公式の投稿APIに冪等キーは記載されず、取得APIで確認できる範囲も直近100件までなので、重複投稿を完全には防げない。新版は実際に成功した送信日（日本時間）の翌日から適用する。[メッセージ投稿](https://developer.chatwork.com/reference/post-rooms-room_id-messages) / [メッセージ取得](https://developer.chatwork.com/reference/get-rooms-room_id-messages)
+11. **管理記録と受け入れ確認を用意する。** 接続・再接続・解除の操作をしたIT担当者、接続したChatworkアカウント、rid、送信結果を記録する。秘密情報そのものは記録しない。接続、ルーム名表示、本文投稿、PDF添付、`.md`添付、期限切れ後の更新、権限不足、オフライン後の手動送信、マスタ通知の自動再通知と適用日を確認する。
 
 ## 提案を採用する際の確認
 
@@ -57,6 +58,7 @@ Chatwork公式は認可コード方式をサポートし、コンフィデンシ
 - [エンドポイントについて](https://developer.chatwork.com/ja/docs/endpoints)
 - [ルーム情報取得](https://developer.chatwork.com/reference/get-rooms-room_id)
 - [メッセージ投稿](https://developer.chatwork.com/reference/post-rooms-room_id-messages)
+- [メッセージ取得](https://developer.chatwork.com/reference/get-rooms-room_id-messages)
 - [ファイルアップロード](https://developer.chatwork.com/reference/post-rooms-room_id-files)
 - [API投稿の未読通知](https://help.chatwork.com/hc/ja/articles/900001985863-API%E7%B5%8C%E7%94%B1%E3%81%AE%E6%8A%95%E7%A8%BF%E3%81%8C%E6%9C%AA%E8%AA%AD%E3%81%AB%E3%81%AA%E3%82%89%E3%81%AA%E3%81%84-%E6%9C%AA%E8%AA%AD%E9%80%9A%E7%9F%A5%E3%81%8C%E6%9D%A5%E3%81%AA%E3%81%84)
 - [API利用申請](https://help.chatwork.com/hc/ja/articles/115000169501-API%E3%81%AE%E5%88%A9%E7%94%A8%E7%94%B3%E8%AB%8B%E3%82%92%E6%89%BF%E8%AA%8D-%E5%8D%B4%E4%B8%8B%E3%81%99%E3%82%8B)
