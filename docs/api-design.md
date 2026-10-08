@@ -6,6 +6,8 @@
 | --- | --- |
 | `WorkRecord` | 1回の清掃作業の入力記録。 |
 | `WorkParticipant` | 作業に参加する1人。作業内で変わらないIDと、その時の氏名を持つ。 |
+| `WorkImageAttachment` | 備考・トラブルに属する作業画像と非公開保存物への参照。 |
+| `ReportImageSnapshot` | 報告確定時の画像の所属欄と保存物への固定参照。 |
 | `MasterRevision` | 客室・設備・清掃項目の固定された版。 |
 | `ReportVersion` | 送信確定時の作業内容と送信先を固定した報告の版。 |
 | `MasterChange` | 承認取得を申告して登録するマスタ変更候補。 |
@@ -38,9 +40,11 @@
 | `GET /v1/work-records/{workId}/history` | 過去記録画面用。対象から外した箇所とチェックは含めない。 |
 | `GET /v1/work-records?archived=true` | 設定画面のリンク先で表示する過去記録一覧。日付変更で過去扱い。 |
 | `GET /v1/work-records/{workId}/readiness` | 現在対象の必須項目、担当者、人数、休憩回答を検査。「いいえ」も回答済み。 |
-| `POST /v1/work-records/{workId}/report-preview` | 結果画面用の一時プレビュー。押下時刻や報告版を作らず、PDF・Markdownの表示内容を取得する。 |
+| `POST /v1/work-records/{workId}/images`、`DELETE /v1/work-records/{workId}/images/{imageId}` | 備考・トラブル画像を個別に追加・除外。画像IDと作業更新番号を維持し、本文の`PATCH`とは別に同期する。 |
+| `GET /v1/work-records/{workId}/images/{imageId}/content` | 閲覧権限を確認して非公開画像を返す。送信済み報告版が参照する画像は作業側で除外後も取得可能。 |
+| `POST /v1/work-records/{workId}/report-preview` | 結果画面用の一時プレビュー。押下時刻、永続報告版、版番号を作らず、初期の編集可能本文とPDF・Markdownの表示内容を取得する。 |
 | `POST /v1/work-records/{workId}/report-button-press` | 結果画面下部の「報告」で呼ぶ。初回のみ押下時刻を記録し、確認ダイアログを開く。キャンセルは追加API不要。 |
-| `POST /v1/work-records/{workId}/report-versions` | ダイアログの「完了」で呼ぶ。再検証後、固定された新版を作りChatwork投稿を開始。過去日付は明示的な確認値を必要とする。 |
+| `POST /v1/work-records/{workId}/report-versions` | ダイアログの「完了」で編集済み本文と作業更新番号を受け取り、再検証後に`Sending`の新版を初めて作る。画像も送信時点で固定。過去日付は明示的な確認値を必要とする。 |
 | `GET /v1/work-records/{workId}/report-versions`、`GET /v1/report-versions/{reportId}` | 版と送信結果を取得。送信結果不明時の自動再送はしない。 |
 | `POST /v1/report-versions/{reportId}/verification` | 不明結果の確認結果を登録する。当日担当職員またはIT担当者が確認できる。確認者・日時・根拠を残す。 |
 | `GET/PUT /v1/settings/chatwork` | IT担当者が接続状態、唯一のルームID・取得したルーム名、Markdown送信方法を確認・更新。 |
@@ -66,12 +70,16 @@
 12. 初回の`Sent`で`hasSentReport=true`と`Completed`を固定する。最新版が`Sending`・`Unknown`なら次の版の送信は`409`、`Failed`・`Sent`なら準備判定を通して新しい版を送れる。旧版の送信済み実績は最新版の失敗で消えない。
 13. `ReportVersion`の送信開始時刻と5分後の監視期限を永続化する。1分間隔の監視で期限超過を拾い、報告IDで投稿を照合する。肯定的な投稿証拠がなければ、直近メッセージに見つからないだけで未投稿とせず`Unknown`にする。ワーカー再起動後も監視を続け、自動再送はしない。
 14. `LateNotificationEvidence`はIT担当者の照合記録または自動検知から作る。変更IDが`ChangeFailed`だったことを、変更記録または氏名・変更内容を含まない`MasterChangeOutcomeAnchor`で確認する。同じ変更ID・投稿IDの重複を防ぐ。証拠は発見から1年、最終結果索引は無期限保存し、元の変更状態・マスタは変えない。
+15. 端末で撮影・選択した画像にはUUIDを発行し、オフライン中は端末に保持する。オンライン復帰後、作業更新番号と冪等キーを付けて非公開ストレージへ同期する。APIは画像ID・所属欄・MIME形式・サイズ・ハッシュを返し、保存先キーや公開URLは返さない。画像の追加・除外で作業の内容更新番号を進める。未同期画像が残る作業は報告確定を`422`で止める。
+16. `report-preview`が返す`defaultEditableBody`は結果画面の本文入力欄の初期値。利用者が編集した`confirmedBody`を報告確定APIへ必ず渡す。`sourceRevision`は作業内容の更新番号で、本文・画像の変更では進むが初回報告ボタン押下や送信状態変更だけでは進まない。不一致なら`409`で再プレビューを求める。サーバーは編集済み本文と、報告ID・過去日付表示など必須要素を加えた最終本文を版に固定する。
+17. プレビューは一時データであり、永続化する`ReportVersion`の状態は`Sending`から始まる。版番号は確定トランザクションで割り当て、プレビュー再生成・ダイアログキャンセル・検証失敗では消費しない。
 
 ## 5. API実装前に確定する項目
 
 | 項目 | 現状 | APIへの影響 |
 | --- | --- | --- |
 | 作業記録の共同閲覧・編集範囲 | 要確認 | 所有者以外への`403`条件。 |
+| 添付画像をPDF・Markdown・Chatwork投稿へどう載せるか | 要確認 | 画像の保存と報告版への固定は定義済み。生成物とChatwork投稿での表現・添付順を決める。 |
 | 表示用の報告版番号 | 要確認 | APIではまず単調増加する`sequence`を採用する設計案。 |
 | 端末紛失・例外的な複数端末利用 | 要確認 | 同期・復旧UX。APIは競合検出を先に備える。 |
 

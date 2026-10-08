@@ -146,6 +146,75 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WorkHistory' }
+  /v1/work-records/{workId}/images:
+    post:
+      tags: [Work]
+      operationId: addWorkImage
+      description: 備考またはトラブルの画像を同期する。端末発行の画像IDを維持し、作業内容更新番号を進める。保存先キーは返さない。
+      parameters:
+        - { $ref: '#/components/parameters/WorkId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [revision, clientImageId, field, file]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                clientImageId: { type: string, format: uuid }
+                field: { type: string, enum: [remarks, trouble] }
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: 同期された画像と更新後の作業内容更新番号
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [image, revision]
+                properties:
+                  image: { $ref: '#/components/schemas/WorkImageAttachment' }
+                  revision: { type: integer, minimum: 1 }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/work-records/{workId}/images/{imageId}:
+    delete:
+      tags: [Work]
+      operationId: removeWorkImage
+      description: 現在の作業から画像を除外する。過去の報告版の参照は残す。
+      parameters:
+        - { $ref: '#/components/parameters/WorkId' }
+        - { $ref: '#/components/parameters/ImageId' }
+        - { name: revision, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        '200':
+          description: 除外後の作業内容更新番号
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revision]
+                properties:
+                  revision: { type: integer, minimum: 1 }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/work-records/{workId}/images/{imageId}/content:
+    get:
+      tags: [Work]
+      operationId: getWorkImageContent
+      description: 作業または保存中の報告版から参照される非公開画像を、閲覧権限確認後に返す。
+      parameters:
+        - { $ref: '#/components/parameters/WorkId' }
+        - { $ref: '#/components/parameters/ImageId' }
+      responses:
+        '200':
+          description: 保存した画像。Content-Typeは元画像の検証済みMIME形式。
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
   /v1/work-records/{workId}/readiness:
     get:
       tags: [Work]
@@ -180,7 +249,7 @@ paths:
     post:
       tags: [Report]
       operationId: createReportPreview
-      description: 結果画面用の一時プレビュー。報告ボタン初回押下時刻や報告版を作らない。
+      description: 結果画面用の一時プレビュー。報告ボタン初回押下時刻、報告版、版番号を作らない。
       parameters:
         - { $ref: '#/components/parameters/WorkId' }
       requestBody:
@@ -199,11 +268,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [sourceRevision, format, previewId]
+                required: [sourceRevision, format, previewId, defaultEditableBody, imageIds]
                 properties:
                   sourceRevision: { type: integer, minimum: 1 }
                   format: { type: string, enum: [pdf, markdown] }
                   previewId: { type: string }
+                  defaultEditableBody: { type: string, description: 結果画面で利用者が編集できる送信本文の初期値 }
+                  imageIds: { type: array, items: { type: string, format: uuid }, description: 現在有効な添付画像。版への固定は完了時に行う }
                   markdownText: { type: string }
         '422': { $ref: '#/components/responses/ValidationError' }
   /v1/report-previews/{previewId}/content:
@@ -240,7 +311,7 @@ paths:
     post:
       tags: [Report]
       operationId: submitReportVersion
-      description: 確認ダイアログの「完了」に対応。202は投稿成功を意味しない。最新版がSendingまたはUnknownなら409。送信済みの旧版があっても新しい版を作れる。
+      description: 確認ダイアログの「完了」に対応。作業更新番号と編集済み本文を受け取り、Sendingの版を初めて作る。202は投稿成功を意味しない。最新版がSendingまたはUnknownなら409。
       parameters:
         - { $ref: '#/components/parameters/WorkId' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
@@ -250,14 +321,15 @@ paths:
           application/json:
             schema:
               type: object
-              required: [sourceRevision, format, pastDateConfirmed]
+              required: [sourceRevision, confirmedBody, format, pastDateConfirmed]
               properties:
-                sourceRevision: { type: integer, minimum: 1 }
+                sourceRevision: { type: integer, minimum: 1, description: プレビュー時の作業内容更新番号。現在値と異なれば409 }
+                confirmedBody: { type: string, description: 利用者が結果画面で編集し、確認ダイアログで承認した本文。空文字を許す }
                 format: { type: string, enum: [pdf, markdown] }
                 pastDateConfirmed: { type: boolean }
       responses:
         '202':
-          description: 不変の報告版を作り、送信処理を開始
+          description: 本文・画像・作業内容を固定したSendingの報告版を作り、送信処理を開始
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReportVersion' }
@@ -491,6 +563,7 @@ components:
     RevisionId: { name: revisionId, in: path, required: true, schema: { type: string } }
     ReportId: { name: reportId, in: path, required: true, schema: { type: string } }
     ChangeId: { name: changeId, in: path, required: true, schema: { type: string } }
+    ImageId: { name: imageId, in: path, required: true, schema: { type: string, format: uuid } }
     IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1 } }
   responses:
     Unauthorized: { description: ログインが無効 }
@@ -534,6 +607,27 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string, minLength: 1 }
+    WorkImageAttachment:
+      type: object
+      required: [id, field, mediaType, byteSize, sha256, createdAt]
+      description: 備考・トラブルに現在添付されている画像。非公開の保存先キーは返さない。
+      properties:
+        id: { type: string, format: uuid }
+        field: { type: string, enum: [remarks, trouble] }
+        mediaType: { type: string, pattern: '^image/' }
+        byteSize: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        createdAt: { type: string, format: date-time }
+    ReportImageSnapshot:
+      type: object
+      required: [imageId, field, mediaType, byteSize, sha256]
+      description: 送信確定時の画像の固定参照。作業から除外しても報告版の保存期限中は閲覧可能。
+      properties:
+        imageId: { type: string, format: uuid }
+        field: { type: string, enum: [remarks, trouble] }
+        mediaType: { type: string, pattern: '^image/' }
+        byteSize: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
     CreateWorkRecord:
       type: object
       required: [workDate, onDutyEmployeeName, staffCount, participants]
@@ -561,7 +655,7 @@ components:
             exceptionNote: { type: string }
     WorkRecord:
       type: object
-      required: [id, revision, workDate, masterRevisionId, status, hasSentReport, hasUnreportedChanges, onDutyEmployeeName, staffCount, participants, areas, breakTaken]
+      required: [id, revision, workDate, masterRevisionId, status, hasSentReport, hasUnreportedChanges, onDutyEmployeeName, staffCount, participants, areas, images, breakTaken]
       properties:
         id: { type: string }
         revision: { type: integer, minimum: 1 }
@@ -577,6 +671,7 @@ components:
         staffCount: { type: integer, minimum: 1, maximum: 5 }
         participants: { type: array, items: { $ref: '#/components/schemas/WorkParticipant' } }
         areas: { type: array, items: { $ref: '#/components/schemas/WorkArea' } }
+        images: { type: array, items: { $ref: '#/components/schemas/WorkImageAttachment' }, description: 現在の作業に添付されている画像。追加・除外は専用APIで行う }
         breakTaken: { type: [boolean, 'null'] }
         remarks: { type: string }
         trouble: { type: string }
@@ -608,7 +703,7 @@ components:
         archived: { type: boolean }
     WorkHistory:
       type: object
-      required: [id, workDate, status, hasSentReport, hasUnreportedChanges, participants, areas, reportVersions]
+      required: [id, workDate, status, hasSentReport, hasUnreportedChanges, participants, areas, images, reportVersions]
       properties:
         id: { type: string }
         workDate: { type: string, format: date }
@@ -619,6 +714,7 @@ components:
         latestReportStatus: { type: [string, 'null'], enum: [Sending, Sent, Failed, Unknown, null] }
         participants: { type: array, items: { $ref: '#/components/schemas/WorkParticipant' } }
         areas: { type: array, items: { $ref: '#/components/schemas/WorkArea' } }
+        images: { type: array, items: { $ref: '#/components/schemas/WorkImageAttachment' } }
         reportVersions: { type: array, items: { $ref: '#/components/schemas/ReportVersion' } }
     Readiness:
       type: object
@@ -628,7 +724,7 @@ components:
         missing: { type: array, items: { type: string } }
     ReportVersion:
       type: object
-      required: [id, workId, sequence, status, format, sourceRevision, createdAt, sendingStartedAt, sendingDeadlineAt]
+      required: [id, workId, sequence, status, format, sourceRevision, confirmedBody, finalMessageBody, imagesSnapshot, createdAt, sendingStartedAt, sendingDeadlineAt]
       properties:
         id: { type: string }
         workId: { type: string }
@@ -638,6 +734,9 @@ components:
         format: { type: string, enum: [pdf, markdown] }
         markdownDelivery: { type: [string, 'null'], enum: [body, attachment, null] }
         sourceRevision: { type: integer, minimum: 1 }
+        confirmedBody: { type: [string, 'null'], description: 利用者が確認した編集済み本文。保存期限後に削除された版ではnull }
+        finalMessageBody: { type: [string, 'null'], description: 報告ID・過去日付表示・生成報告内容を加えて確定したChatwork本文。保存期限後はnull }
+        imagesSnapshot: { type: array, items: { $ref: '#/components/schemas/ReportImageSnapshot' }, description: 保存期限後に内容が削除された版では空配列 }
         createdAt: { type: string, format: date-time }
         sendingStartedAt: { type: string, format: date-time, description: 送信開始を永続化した時刻 }
         sendingDeadlineAt: { type: string, format: date-time, description: 送信開始から5分。期限時は投稿照合後に状態を確定する }

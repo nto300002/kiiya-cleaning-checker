@@ -7,7 +7,10 @@
 | 英語 | 日本語で指すもの |
 | --- | --- |
 | `WorkRecord` | 1回の清掃作業を表す記録。作業日、担当職員、清掃対象、チェック結果などをまとめる単位。 |
-| `ReportVersion` | ある`WorkRecord`から作る報告の1つの版。送信を確定した時点の内容を固定し、修正・再送時には別の版を作る。 |
+| `ReportVersion` | 確認ダイアログの「完了」で初めて永続化する報告の版。送信時点の内容を固定し、修正・再送時には別の版を作る。 |
+| `ReportPreview` | 結果画面に表示する一時的なプレビュー。報告版や版番号を作らない。 |
+| `WorkImageAttachment` | 作業全体の備考またはトラブル欄に添付した画像。 |
+| `ReportImageSnapshot` | 報告確定時の画像の所属欄と保存物への参照を固定した写し。 |
 | `MasterChange` | 現場設備、清掃項目、客室マスタの1回の変更。変更内容、更新者、承認を受けた相手の氏名を含む。 |
 | `Notification` | `MasterChange`を登録済みのChatworkルームへ知らせる1件の通知。報告書の送信とは別に扱う。 |
 | `NotificationAttempt` | `Notification`の1回の送信試行。失敗・結果不明・成功を試行ごとに履歴へ残す。 |
@@ -17,7 +20,7 @@
 | `Reporting` | 作業記録から確定した報告版をChatworkへ送信している状態。 |
 | `VerificationNeeded` | Chatworkへの送信結果が不明で、投稿の有無を確認する必要がある状態。 |
 | `Completed` | その作業で少なくとも1版の報告が送信済みと確認できた状態。後の修正・再送が失敗してもこの実績は消さない。 |
-| `Draft` | 報告版またはマスタ変更を作成・編集している状態。 |
+| `Draft` | マスタ変更を作成・編集している状態。報告版には使わない。 |
 | `Sending` | 報告版または通知をChatworkへ送信中の状態。 |
 | `Sent` | Chatworkへの投稿が成功した、または投稿済みと確認できた状態。 |
 | `Failed` | Chatworkへ投稿されていないことが分かった状態。 |
@@ -87,10 +90,7 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Draft: 作業記録から版を作成
-    Draft --> Ready: 必須条件を満たしプレビュー生成
-    Ready --> Draft: 本文・形式・作業内容を修正
-    Ready --> Sending: 確認ダイアログの「完了」で送信
+    [*] --> Sending: 「完了」で版を作成・送信開始
     Sending --> Sent: 投稿成功
     Sending --> Failed: 未投稿が確定
     Sending --> Unknown: 投稿結果を判定できない
@@ -98,8 +98,9 @@ stateDiagram-v2
     Unknown --> Failed: 未投稿と確認
 ```
 
-- `Sending`に移る直前に、その版の本文、形式、宛先、作業結果を固定する。`Sent`、`Failed`、`Unknown`の版は書き換えない。
-- `Sent`後の修正・再送では、同じ`WorkRecord`に紐づく新しい`ReportVersion`を`Draft`から作る。
+- 結果画面のプレビューと本文の編集は`ReportVersion`を作らない。確認ダイアログの「完了」で、作業の更新番号、編集済み本文、画像の同期状態、必須入力を検証し、`Sending`の版を1件作って版番号を割り当てる。`ReportVersion`の`Draft`・`Ready`は存在しない。ダイアログのキャンセルやプレビューの再生成では版番号を消費しない。
+- `Sending`の版を作るトランザクションで、編集済み本文、サーバーが生成する最終送信本文、形式、宛先、作業結果、添付画像の写しを固定する。`Sent`、`Failed`、`Unknown`になっても書き換えない。
+- `Sent`後の修正・再送では、同じ`WorkRecord`から新しい`ReportVersion`を`Sending`で作る。
 - `Failed`後の再送も、新しい版を作る。`Unknown`ではまず投稿の有無を確認し、未投稿と分かった場合に新しい版を作る。同じ版を無条件に再送しない。
 - `Sending`開始から5分経っても確定結果がない場合、監視処理が報告IDでChatwork投稿を照合する。投稿IDなどの肯定的な証拠があれば`Sent`、未投稿を確実に示せる証拠があれば`Failed`とする。直近メッセージに見つからないだけでは未投稿と断定せず、照合不能なら`Unknown`へ移し`DeliveryUncertaintyRecord`を作る。監視処理は1分ごとに期限超過を探し、再起動後も永続化した送信開始時刻から回復する。状態更新は版IDと現在状態を照合して一度だけ行い、遅れて到着した投稿成功の証拠は`Unknown`から`Sent`へ記録できる。`Unknown`を自動再送しない。
 - `Sending`・`Unknown`は削除期限が来ても内容を保留する。結果が`Sent`ならその版を無期限に保存し、`Failed`なら初回押下からの期限を適用する。結果不明になった事実は別に残す。
