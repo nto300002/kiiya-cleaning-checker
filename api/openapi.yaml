@@ -51,7 +51,7 @@ paths:
         - { name: workDate, in: query, required: true, schema: { type: string, format: date } }
       responses:
         '200':
-          description: 指定作業日に有効なマスタ版
+          description: 指定作業日に有効なマスタ版。後日の通知確認で過去日の結果は変えない。
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MasterRevision' }
@@ -405,11 +405,15 @@ paths:
         - { $ref: '#/components/parameters/IdempotencyKey' }
       responses:
         '202':
-          description: Chatwork通知処理を開始。新版はまだ適用しない。
+          description: 現在有効な元版と環境ごとの変更枠を確保して通知を開始。新版はまだ適用しない。
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MasterChange' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: 元版が古い、または同じ環境で別の変更が通知中・適用待ち。通知は送らない。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MasterChangeConflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /v1/alerts:
     get:
@@ -471,6 +475,8 @@ components:
       properties:
         id: { type: string }
         effectiveDate: { type: string, format: date }
+        notificationPostedAt: { type: [string, 'null'], format: date-time, description: Chatwork上の投稿日時 }
+        notificationConfirmedAt: { type: [string, 'null'], format: date-time, description: 投稿成功を確認した日時 }
         areas:
           type: array
           items:
@@ -483,6 +489,13 @@ components:
               hasDryer: { type: boolean }
               checklistItems: { type: array, items: { type: string } }
               capacity: { type: integer, minimum: 0 }
+    WorkParticipant:
+      type: object
+      required: [id, name]
+      description: IDはクライアントが作るUUID。同じ作業内で不変。氏名候補IDとは別。
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1 }
     CreateWorkRecord:
       type: object
       required: [workDate, onDutyEmployeeName, staffCount, participants]
@@ -490,14 +503,14 @@ components:
         workDate: { type: string, format: date }
         onDutyEmployeeName: { type: string, minLength: 1 }
         staffCount: { type: integer, minimum: 1, maximum: 5 }
-        participants: { type: array, minItems: 1, maxItems: 5, items: { type: string, minLength: 1 } }
+        participants: { type: array, minItems: 1, maxItems: 5, items: { $ref: '#/components/schemas/WorkParticipant' } }
     WorkArea:
       type: object
-      required: [code, selected, assignees, checks]
+      required: [code, selected, assigneeIds, checks]
       properties:
         code: { type: string }
         selected: { type: boolean }
-        assignees: { type: array, items: { type: string } }
+        assigneeIds: { type: array, uniqueItems: true, items: { type: string, format: uuid }, description: 同じ作業の参加者IDだけを指定 }
         checks:
           type: object
           additionalProperties: { type: boolean }
@@ -519,12 +532,13 @@ components:
         status: { type: string, enum: [Editing, Ready, Reporting, VerificationNeeded, Completed] }
         onDutyEmployeeName: { type: string }
         staffCount: { type: integer, minimum: 1, maximum: 5 }
-        participants: { type: array, items: { type: string } }
+        participants: { type: array, items: { $ref: '#/components/schemas/WorkParticipant' } }
         areas: { type: array, items: { $ref: '#/components/schemas/WorkArea' } }
         breakTaken: { type: [boolean, 'null'] }
         remarks: { type: string }
         trouble: { type: string }
         firstReportButtonPressedAt: { type: [string, 'null'], format: date-time }
+        retentionHold: { type: boolean, description: 送信中・結果不明の版があり、期限後の削除を保留中 }
     UpdateWorkRecord:
       type: object
       required: [revision]
@@ -532,7 +546,7 @@ components:
         revision: { type: integer, minimum: 1 }
         onDutyEmployeeName: { type: string, minLength: 1 }
         staffCount: { type: integer, minimum: 1, maximum: 5 }
-        participants: { type: array, minItems: 1, maxItems: 5, items: { type: string, minLength: 1 } }
+        participants: { type: array, minItems: 1, maxItems: 5, items: { $ref: '#/components/schemas/WorkParticipant' } }
         areas: { type: array, items: { $ref: '#/components/schemas/WorkArea' } }
         breakTaken: { type: [boolean, 'null'] }
         remarks: { type: string }
@@ -547,10 +561,11 @@ components:
         archived: { type: boolean }
     WorkHistory:
       type: object
-      required: [id, workDate, areas, reportVersions]
+      required: [id, workDate, participants, areas, reportVersions]
       properties:
         id: { type: string }
         workDate: { type: string, format: date }
+        participants: { type: array, items: { $ref: '#/components/schemas/WorkParticipant' } }
         areas: { type: array, items: { $ref: '#/components/schemas/WorkArea' } }
         reportVersions: { type: array, items: { $ref: '#/components/schemas/ReportVersion' } }
     Readiness:
@@ -575,6 +590,8 @@ components:
         sentAt: { type: [string, 'null'], format: date-time }
         chatworkMessageId: { type: [string, 'null'] }
         pastDate: { type: boolean }
+        participantsSnapshot: { type: array, items: { $ref: '#/components/schemas/WorkParticipant' }, description: 送信確定時の参加者IDと氏名の写し }
+        contentRetentionStatus: { type: string, enum: [indefinite, pendingVerification, untilDeadline, purged] }
     ChatworkSettings:
       type: object
       required: [connected, markdownDelivery]
@@ -621,6 +638,8 @@ components:
         status: { type: string, enum: [Draft, Ready, AwaitingNotification, Scheduled, Applied, ChangeFailed] }
         baseRevisionId: { type: string }
         effectiveDate: { type: [string, 'null'], format: date }
+        notificationPostedAt: { type: [string, 'null'], format: date-time }
+        notificationConfirmedAt: { type: [string, 'null'], format: date-time }
         attempts:
           type: array
           items:
@@ -630,6 +649,13 @@ components:
               number: { type: integer, minimum: 1, maximum: 3 }
               result: { type: string, enum: [Pending, Sending, Sent, Failed, Unknown] }
               attemptedAt: { type: [string, 'null'], format: date-time }
+    MasterChangeConflict:
+      type: object
+      required: [code, currentRevisionId]
+      properties:
+        code: { type: string, enum: [stale_base_revision, active_change_exists] }
+        currentRevisionId: { type: string }
+        activeChangeId: { type: [string, 'null'] }
     AppAlert:
       type: object
       required: [id, changeId, message, createdAt]
