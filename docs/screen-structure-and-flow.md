@@ -86,4 +86,4 @@ flowchart TD
 
 Googleログイン、サーバー保存・オフライン同期、実際のChatwork認証・投稿、PDF／Markdown生成、マスタ変更通知と再試行、保存期限に従う削除、アクセス権の厳密な判定は別の実装Issueで扱う。作業記録の共同閲覧範囲と端末紛失時の復旧方法は要件上も未決定のまま残す。
 
-関連文書: [要件定義](requirements.md)、[状態遷移](state-transitions.md)、[API設計](api-design.md)、[テストケース](test-cases.md)
+関連文書: [要件定義](requirements.md)、[状態遷移](state-transitions.md)、[API設計](api-design.md)、[テストケース](test-cases.md)、[フロントエンド技術・デプロイ方針](infrastructure-and-access.md)
