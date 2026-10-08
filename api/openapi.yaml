@@ -240,7 +240,7 @@ paths:
     post:
       tags: [Report]
       operationId: submitReportVersion
-      description: 確認ダイアログの「完了」に対応。202は投稿成功を意味しない。
+      description: 確認ダイアログの「完了」に対応。202は投稿成功を意味しない。最新版がSendingまたはUnknownなら409。送信済みの旧版があっても新しい版を作れる。
       parameters:
         - { $ref: '#/components/parameters/WorkId' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
@@ -415,6 +415,44 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MasterChangeConflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/master-notification-evidence:
+    get:
+      tags: [Master]
+      operationId: listLateNotificationEvidence
+      description: IT担当者が不成立後に見つかった通知証拠を変更IDで照会する。元の変更記録が削除済みでも取得できる。
+      parameters:
+        - { name: changeId, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 保存期間内の証拠一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/LateNotificationEvidence' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Master]
+      operationId: recordLateNotificationEvidence
+      description: IT担当者がChatwork投稿を確認して登録する。同じ変更IDと投稿IDの重複登録を防ぎ、変更状態は変えない。
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateLateNotificationEvidence' }
+      responses:
+        '201':
+          description: 元の変更がChangeFailedと照合できた証拠
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LateNotificationEvidence' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /v1/alerts:
     get:
       tags: [Alerts]
@@ -523,13 +561,18 @@ components:
             exceptionNote: { type: string }
     WorkRecord:
       type: object
-      required: [id, revision, workDate, masterRevisionId, status, onDutyEmployeeName, staffCount, participants, areas, breakTaken]
+      required: [id, revision, workDate, masterRevisionId, status, hasSentReport, hasUnreportedChanges, onDutyEmployeeName, staffCount, participants, areas, breakTaken]
       properties:
         id: { type: string }
         revision: { type: integer, minimum: 1 }
         workDate: { type: string, format: date }
         masterRevisionId: { type: string }
-        status: { type: string, enum: [Editing, Ready, Reporting, VerificationNeeded, Completed] }
+        status: { type: string, enum: [Editing, Ready, Reporting, VerificationNeeded, Completed], description: Completedは送信済み実績。一度成立したら再報告が失敗しても戻さない }
+        hasSentReport: { type: boolean, description: Sentの報告版が1件以上あるか }
+        hasUnreportedChanges: { type: boolean, description: 最新の作業入力に対応する送信済み版がないか }
+        latestReportVersionId: { type: [string, 'null'] }
+        latestReportStatus: { type: [string, 'null'], enum: [Sending, Sent, Failed, Unknown, null] }
+        firstCompletedAt: { type: [string, 'null'], format: date-time }
         onDutyEmployeeName: { type: string }
         staffCount: { type: integer, minimum: 1, maximum: 5 }
         participants: { type: array, items: { $ref: '#/components/schemas/WorkParticipant' } }
@@ -553,18 +596,27 @@ components:
         trouble: { type: string }
     WorkSummary:
       type: object
-      required: [id, workDate, status, archived]
+      required: [id, workDate, status, hasSentReport, hasUnreportedChanges, archived]
       properties:
         id: { type: string }
         workDate: { type: string, format: date }
-        status: { type: string }
+        status: { type: string, enum: [Editing, Ready, Reporting, VerificationNeeded, Completed] }
+        hasSentReport: { type: boolean }
+        hasUnreportedChanges: { type: boolean }
+        latestReportVersionId: { type: [string, 'null'] }
+        latestReportStatus: { type: [string, 'null'], enum: [Sending, Sent, Failed, Unknown, null] }
         archived: { type: boolean }
     WorkHistory:
       type: object
-      required: [id, workDate, participants, areas, reportVersions]
+      required: [id, workDate, status, hasSentReport, hasUnreportedChanges, participants, areas, reportVersions]
       properties:
         id: { type: string }
         workDate: { type: string, format: date }
+        status: { type: string, enum: [Editing, Ready, Reporting, VerificationNeeded, Completed] }
+        hasSentReport: { type: boolean }
+        hasUnreportedChanges: { type: boolean }
+        latestReportVersionId: { type: [string, 'null'] }
+        latestReportStatus: { type: [string, 'null'], enum: [Sending, Sent, Failed, Unknown, null] }
         participants: { type: array, items: { $ref: '#/components/schemas/WorkParticipant' } }
         areas: { type: array, items: { $ref: '#/components/schemas/WorkArea' } }
         reportVersions: { type: array, items: { $ref: '#/components/schemas/ReportVersion' } }
@@ -576,7 +628,7 @@ components:
         missing: { type: array, items: { type: string } }
     ReportVersion:
       type: object
-      required: [id, workId, sequence, status, format, sourceRevision, createdAt]
+      required: [id, workId, sequence, status, format, sourceRevision, createdAt, sendingStartedAt, sendingDeadlineAt]
       properties:
         id: { type: string }
         workId: { type: string }
@@ -587,6 +639,8 @@ components:
         markdownDelivery: { type: [string, 'null'], enum: [body, attachment, null] }
         sourceRevision: { type: integer, minimum: 1 }
         createdAt: { type: string, format: date-time }
+        sendingStartedAt: { type: string, format: date-time, description: 送信開始を永続化した時刻 }
+        sendingDeadlineAt: { type: string, format: date-time, description: 送信開始から5分。期限時は投稿照合後に状態を確定する }
         sentAt: { type: [string, 'null'], format: date-time }
         chatworkMessageId: { type: [string, 'null'] }
         pastDate: { type: boolean }
@@ -656,6 +710,33 @@ components:
         code: { type: string, enum: [stale_base_revision, active_change_exists] }
         currentRevisionId: { type: string }
         activeChangeId: { type: [string, 'null'] }
+    CreateLateNotificationEvidence:
+      type: object
+      required: [changeId, roomId, chatworkMessageId, postedAt, evidence]
+      properties:
+        changeId: { type: string }
+        roomId: { type: string, pattern: '^[0-9]+$' }
+        chatworkMessageId: { type: string }
+        postedAt: { type: string, format: date-time }
+        evidence: { type: string, minLength: 1, description: 変更IDを含む投稿との照合根拠 }
+    LateNotificationEvidence:
+      type: object
+      required: [id, changeId, environmentId, baseRevisionId, changeFailedAt, roomId, chatworkMessageId, postedAt, discoveredAt, evidence, notAppliedReason, retainUntil]
+      properties:
+        id: { type: string }
+        changeId: { type: string }
+        notificationId: { type: [string, 'null'] }
+        environmentId: { type: string }
+        baseRevisionId: { type: string }
+        changeFailedAt: { type: string, format: date-time }
+        roomId: { type: string }
+        chatworkMessageId: { type: string }
+        postedAt: { type: string, format: date-time }
+        discoveredAt: { type: string, format: date-time }
+        discoveredByUserId: { type: [string, 'null'], description: 自動検知時はnull }
+        evidence: { type: string }
+        notAppliedReason: { type: string, const: change_already_failed }
+        retainUntil: { type: string, format: date-time, description: 発見から1年 }
     AppAlert:
       type: object
       required: [id, changeId, message, createdAt]

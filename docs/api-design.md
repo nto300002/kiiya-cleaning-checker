@@ -10,6 +10,7 @@
 | `ReportVersion` | 送信確定時の作業内容と送信先を固定した報告の版。 |
 | `MasterChange` | 承認取得を申告して登録するマスタ変更候補。 |
 | `NotificationAttempt` | マスタ変更通知の1回のChatwork投稿試行。 |
+| `LateNotificationEvidence` | 不成立後に見つかったマスタ変更通知の証拠と、非適用の理由。 |
 | `Idempotency-Key` | 通信再試行や連打による同一操作の重複を防ぐキー。 |
 | `revision` | 作業記録の更新番号。競合更新の検出に使う。 |
 
@@ -24,6 +25,7 @@
 - OAuthコールバックは`state`とPKCEに加え、接続を開始したIT担当者のログインセッションに結び付けて検証する。
 - 業務日、過去日付判定、マスタ適用日は`Asia/Tokyo`。APIの時刻はUTCオフセット付きRFC 3339、作業日は`YYYY-MM-DD`。
 - 開始済み作業の`masterRevisionId`は変えない。新しいマスタ版の有効日は、Chatwork通知の投稿日と成功確認日の遅い方（日本時間）の翌日。後日の照合で過去日にさかのぼらせない。
+- `WorkRecord.status=Completed`は送信済み実績を表し、後の修正・再送では戻さない。最新版の送信結果は`latestReportStatus`、未報告の修正は`hasUnreportedChanges`で別に示す。
 
 ## 3. 主なAPI操作
 
@@ -45,6 +47,7 @@
 | `POST /v1/settings/chatwork/oauth/start`、`GET /v1/settings/chatwork/oauth/callback` | Chatwork OAuth認可コード方式、`offline_access`で接続。stateとPKCEを検証。 |
 | `POST /v1/master-changes`、`POST /v1/master-changes/{changeId}/submit` | 変更候補と承認取得の自己申告・相手2名の氏名を記録する。`submit`は元版照合と環境ごとの変更枠確保に成功した場合だけ通知を開始し、競合なら`409`。 |
 | `GET /v1/master-changes/{changeId}`、`GET /v1/alerts` | 変更状態・通知試行結果と本人宛アラートを表示。 |
+| `GET/POST /v1/master-notification-evidence` | IT担当者が不成立後に発見した通知の証拠を変更IDで登録・照会。元の変更記録の削除後も、最小限の最終結果索引と照合する。 |
 
 ## 4. 共通規則
 
@@ -60,6 +63,9 @@
 9. オフラインでは端末内に入力を保持し、オンライン復帰後に同期する。オフライン中に「完了」は送信開始と見なさず、利用者の再確認後にAPIを呼ぶ。端末保存・復旧方式は別途技術設計で確定する。
 10. 参加者IDはクライアントが作るUUIDで、作業内で不変とする。氏名候補を選んでも新しい参加者IDを作り、箇所の担当者は`assigneeIds`で参照する。サーバーは同じ作業の参加者IDか検証し、氏名の重複を許す。担当中の参加者を削除するときは先に割当解除を求める。
 11. マスタ変更の下書きは複数作れるが、環境ごとに`AwaitingNotification`または`Scheduled`は最大1件。`submit`のトランザクションで現在有効な元版と変更枠を検査・確保してから通知する。競合で通知は送らず、最新マスタを元に承認を確認し直す。`ChangeFailed`後の遅い投稿発見では旧変更を復活させない。
+12. 初回の`Sent`で`hasSentReport=true`と`Completed`を固定する。最新版が`Sending`・`Unknown`なら次の版の送信は`409`、`Failed`・`Sent`なら準備判定を通して新しい版を送れる。旧版の送信済み実績は最新版の失敗で消えない。
+13. `ReportVersion`の送信開始時刻と5分後の監視期限を永続化する。1分間隔の監視で期限超過を拾い、報告IDで投稿を照合する。肯定的な投稿証拠がなければ、直近メッセージに見つからないだけで未投稿とせず`Unknown`にする。ワーカー再起動後も監視を続け、自動再送はしない。
+14. `LateNotificationEvidence`はIT担当者の照合記録または自動検知から作る。変更IDが`ChangeFailed`だったことを、変更記録または氏名・変更内容を含まない`MasterChangeOutcomeAnchor`で確認する。同じ変更ID・投稿IDの重複を防ぐ。証拠は発見から1年、最終結果索引は無期限保存し、元の変更状態・マスタは変えない。
 
 ## 5. API実装前に確定する項目
 
