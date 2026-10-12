@@ -9,9 +9,8 @@
 | `Secret Manager` | Chatwork連携の秘密値を保管するGoogle Cloudのサービス。 |
 | `service account` | サーバー処理に与えるGoogle Cloud上の機械用の身分。アプリ利用者のGoogleアカウントとは別。 |
 | `rid` | ChatworkルームID。検証用と本番用を分ける。 |
-| `Next.js` | スマートフォンから開くWeb画面を作るフレームワーク。 |
 | `PWA` | ブラウザーからホーム画面へ追加できるWebアプリ。 |
-| `Vercel` | 今回のフロントエンドを公開する場所。APIサーバーとは分ける。 |
+| `Sites` | 担当者確認用のWeb画面を制作・保存・公開する環境。後続のAPIサーバーとは分ける。 |
 
 ## 2. 選定した構成〔決定〕
 
@@ -21,14 +20,13 @@
 - 初期版では**グローバルのSecret Manager**を使う。Cloud Run標準のシークレット連携は地域指定のシークレットをサポートしていないため。秘密値の日本国内保存が要件になった場合は、東京の地域指定Secret ManagerをAPIから直接使う設計へ変更する。[Cloud Runのシークレット制約](https://docs.cloud.google.com/run/docs/configuring/services/secrets) / [Secret Managerの地域](https://docs.cloud.google.com/secret-manager/docs/locations)
 - 作業記録・マスタ・通知履歴を保存するデータベース製品は、この選定の対象外とし、詳細な技術設計で決める。
 
-### フロントエンドの基本方針〔2026-10-08決定〕
+### 担当者確認用フロントエンドの基本方針〔2026-10-12更新〕
 
-- **Next.js + React + TypeScript**で、スマートフォン向けの**PWA**を作る。担当者確認用の試作から本番版まで、Webアプリを基本とする。デプロイ先は**Vercel**。[Next.jsのPWAガイド](https://nextjs.org/docs/app/guides/progressive-web-apps) / [VercelのNext.js対応](https://vercel.com/docs/frameworks/full-stack/nextjs)
-- 画面遷移には**Next.js App Router**を使い、React NativeとReact Native for Webは導入しない。開発・ビルドには標準の`next dev`／`next build`を使う。[Next.jsのApp Router](https://nextjs.org/docs/app) / [Next.jsの開発・ビルドコマンド](https://nextjs.org/docs/app/getting-started/installation)
-- フロントエンドのコードはこのリポジトリの`web/`配下に置く。Node.jsは**24.x**、パッケージ管理は**npm**とし、`package-lock.json`をコミットする。Vercel側もNode.js 24.xと`web/`をRoot Directoryに設定する。[VercelのNode.js対応版](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions) / [Root Directory設定](https://vercel.com/docs/monorepos)
-- PWAとしてアプリ名、アイコン、Webアプリマニフェストを用意し、VercelのHTTPS上でホーム画面への追加を確認する。**オフライン入力・同期とサービスワーカーによるデータ保存は今回のUI試作の対象外**とし、実装済みと誤認させない。本番実装では、写真を含む作業記録の端末内保存、再起動後の復元、接続回復後の同期を別途設計・検証する。[Next.jsのPWAガイド](https://nextjs.org/docs/app/guides/progressive-web-apps) / [MDNのブラウザー保存と削除条件](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria)
-- GitHubリポジトリからVercelプロジェクトを作成し、作業ブランチの**Preview**で担当者に画面を見せる。確認後に`main`を**Production**へ反映する。VercelはGit連携でPreviewとProductionを分けられる。[VercelのGit連携](https://vercel.com/docs/git)
-- 試作は架空データだけを使い、VercelにはChatworkの資格情報や実際のridを置かない。既に決めた**Cloud Run・Cloud Tasks・Secret Managerは後続のサーバー実装で維持**し、Vercel上の画面から秘密情報を直接扱わない。
+- [Issue #1](https://github.com/nto300002/kiiya-cleaning-checker/issues/1)の後から決まった方針に従い、担当者確認用の試作は**Sitesスキル**で制作・公開する。スマートフォンの縦画面で清掃範囲の選択から報告まで操作できるWebアプリとする。
+- 試作の画面遷移、入力保持、人数・作業種別による表示切替は、Sitesで配信する静的フロントエンド内で実装する。実装ソースはSitesの管理するプロジェクトに保存し、このGitHubリポジトリでは要件・設計・Issueを管理する。
+- PWAに近い体験のためにアプリ名、アイコン、Webアプリマニフェスト、standalone表示を用意し、SitesのHTTPS URLから対応端末のホーム画面へ追加できることを確認する。**オフライン動作・同期、プッシュ通知は今回の試作に含めない**。本番実装では、写真を含む作業記録の端末内保存、再起動後の復元、接続回復後の同期を別途設計・検証する。[MDNのPWAインストール要件](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable) / [MDNのブラウザー保存と削除条件](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria)
+- Siteは最初に非公開で作成・デプロイし、担当者確認に必要な閲覧範囲を設定する。デプロイURLと保存済みバージョンをIssue #1に記録する。
+- 試作は架空データだけを使い、SitesにChatworkの資格情報や実際のridを置かない。**Cloud Run・Cloud Tasks・Secret Managerは後続のサーバー実装で維持**する。本番フロントエンドの配置先と実装技術は、その実装時に改めて決める。
 
 ## 3. 秘密情報の置き場所〔決定〕
 

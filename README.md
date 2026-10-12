@@ -3,6 +3,7 @@
 清掃作業の確認と報告を支援するアプリの作業用リポジトリです。
 
 - [要件定義（作業版）](docs/requirements.md)
+- [Notion・現場資料との差分整理（2026-10-09）](docs/source-gap-review-2026-10-09.md)
 - [状態遷移](docs/state-transitions.md)
 - [論理データ設計（第1稿）](docs/data-design.md)
 - [Chatwork認証の実装案](docs/chatwork-auth-plan.md)

@@ -35,14 +35,14 @@
 | --- | --- |
 | `GET /v1/me`、`GET /v1/name-suggestions` | 利用者情報と全員共有の氏名候補を取得。候補は無期限保存。 |
 | `GET /v1/master-revisions/current?workDate=...` | 作業日に有効なマスタを取得。作業開始後の自動切替なし。 |
-| `POST /v1/work-records` | 作業を開始し、マスタ版を固定する。人数は1〜5人。参加者は氏名とUUIDを別に持つ。 |
-| `GET/PATCH /v1/work-records/{workId}` | 入力中の作業を取得・保存。`revision`一致で更新。対象から外した箇所のチェックも編集用データには保持。 |
+| `POST /v1/work-records` | 作業を開始し、マスタ版と予定開始9:55を固定する。人数は1〜5人。参加者は氏名とUUIDを別に持つ。 |
+| `GET/PATCH /v1/work-records/{workId}` | 入力中の作業を取得・保存。`revision`一致で更新。客室の大人・子ども・3値の作業種別、箇所／グループ別開始・終了と完了、3グループの実施箇所数も更新する。対象・種別を変えても旧チェックは編集用データに保持。 |
 | `GET /v1/work-records/{workId}/history` | 過去記録画面用。対象から外した箇所とチェックは含めない。 |
 | `GET /v1/work-records?archived=true` | 設定画面のリンク先で表示する過去記録一覧。日付変更で過去扱い。 |
-| `GET /v1/work-records/{workId}/readiness` | 現在対象の必須項目、担当者、人数、休憩回答を検査。「いいえ」も回答済み。 |
+| `GET /v1/work-records/{workId}/readiness` | 現在対象の箇所／グループの担当者、開始終了・完了、トイレ・シャワー・洗面の実施件数と選択数の一致、客室の種別別必須項目と大人・子ども、休憩回答を検査。共用部の旧詳細チェックは求めない。 |
 | `POST /v1/work-records/{workId}/images`、`DELETE /v1/work-records/{workId}/images/{imageId}` | 備考・トラブル画像を個別に追加・除外。画像IDと作業更新番号を維持し、本文の`PATCH`とは別に同期する。 |
 | `GET /v1/work-records/{workId}/images/{imageId}/content` | 閲覧権限を確認して非公開画像を返す。送信済み報告版が参照する画像は作業側で除外後も取得可能。 |
-| `POST /v1/work-records/{workId}/report-preview` | 結果画面用の一時プレビュー。押下時刻、永続報告版、版番号を作らず、初期の編集可能本文とPDF・Markdownの表示内容を取得する。 |
+| `POST /v1/work-records/{workId}/report-preview` | 結果画面用の一時プレビュー。客室の作業種別・数量・配置先、箇所別時刻と実施件数を含む。押下時刻、永続報告版、版番号を作らず、初期の編集可能本文とPDF・Markdownの表示内容を取得する。「編集する」のOKは端末のプレビュー本文を更新し、キャンセルは破棄する。 |
 | `POST /v1/work-records/{workId}/report-button-press` | 結果画面下部の「報告」で呼ぶ。初回のみ押下時刻を記録し、確認ダイアログを開く。キャンセルは追加API不要。 |
 | `POST /v1/work-records/{workId}/report-versions` | ダイアログの「完了」で編集済み本文と作業更新番号を受け取り、再検証後に`Sending`の新版を初めて作る。画像も送信時点で固定。過去日付は明示的な確認値を必要とする。 |
 | `GET /v1/work-records/{workId}/report-versions`、`GET /v1/report-versions/{reportId}` | 版と送信結果を取得。送信結果不明時の自動再送はしない。 |
@@ -73,6 +73,8 @@
 15. 端末で撮影・選択した画像にはUUIDを発行し、オフライン中は端末に保持する。オンライン復帰後、作業更新番号と冪等キーを付けて非公開ストレージへ同期する。APIは画像ID・所属欄・MIME形式・サイズ・ハッシュを返し、保存先キーや公開URLは返さない。画像の追加・除外で作業の内容更新番号を進める。未同期画像が残る作業は報告確定を`422`で止める。
 16. `report-preview`が返す`defaultEditableBody`は結果画面の本文入力欄の初期値。利用者が編集した`confirmedBody`を報告確定APIへ必ず渡す。`sourceRevision`は作業内容の更新番号で、本文・画像の変更では進むが初回報告ボタン押下や送信状態変更だけでは進まない。不一致なら`409`で再プレビューを求める。サーバーは編集済み本文と、報告ID・過去日付表示など必須要素を加えた最終本文を版に固定する。
 17. プレビューは一時データであり、永続化する`ReportVersion`の状態は`Sending`から始まる。版番号は確定トランザクションで割り当て、プレビュー再生成・ダイアログキャンセル・検証失敗では消費しない。
+18. 客室の`roomStay`は`adults`、`children`、`workType`を必須とし、合計人数をマスタ定員以下で検証する。初期定員は203=2、204=5、205=4、206=3名。`workType`は`checkout`／`stay_amenities_only`／`stay_cleaning`。スリッパ・歯ブラシ数とアメニティ設置場所はサーバーが導出し、端末から独立した確定値として受け取らない。
+19. 客室・ラウンジ・追加4箇所の`WorkArea`と、トイレ・シャワー・洗面の`WorkAreaGroupProgress`に`startedAt`・`finishedAt`・`completed`を保存する。開始前に完了できず、完了時刻は開始以降とする。3グループの`completedCount`はプルダウン入力で、選択箇所数が上限。完了時には両数が一致する。再操作・時刻修正の権限は詳細設計で決める。共用部の個別詳細チェックは求めない。
 
 ## 5. API実装前に確定する項目
 
