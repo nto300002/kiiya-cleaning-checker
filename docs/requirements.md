@@ -1,8 +1,8 @@
 # KIIYA見落としチェッカー 要件定義（作業版）
 
-更新日: 2026-10-09
+更新日: 2026-10-13
 
-出典: [Notion要件定義（初版）](https://app.notion.com/p/KIIYA-3f1ffab34d9681fc9782e51eb8bc4fc2)、[Notion原案・ヒアリング後の修正](https://app.notion.com/p/KIIYA-3ecffab34d9680aaa118daf53620bb35)、2026-10-06〜07の利用者回答、2026-10-09に添付された現場資料2枚。衝突する記述は[差分整理](source-gap-review-2026-10-09.md)に記録する。
+出典: [Notion要件定義（初版）](https://app.notion.com/p/KIIYA-3f1ffab34d9681fc9782e51eb8bc4fc2)、[Notion原案・ヒアリング後の修正](https://app.notion.com/p/KIIYA-3ecffab34d9680aaa118daf53620bb35)、2026-10-06〜07の利用者回答、2026-10-09に添付された現場資料2枚、2026-10-13の担当者からの過去記録・ベッド配置変更要件。衝突する記述は[差分整理](source-gap-review-2026-10-09.md)に記録する。
 
 このファイルはNotion要件定義を作業用に転記し、利用者が決定した内容を該当箇所に反映したもの。`要確認`、`暫定案`、`推奨運用案`は確定事項として扱わない。
 
