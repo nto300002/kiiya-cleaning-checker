@@ -732,6 +732,21 @@ components:
         childSlippers: { type: integer, minimum: 0 }
         toothbrushes: { type: integer, minimum: 1 }
         amenityPlacement: { type: string, enum: [room, entrance_shoe_box] }
+    RoomMasterSnapshot:
+      type: object
+      description: 作業が参照する不変のマスタ版から取り出した客室の基本情報。後のベッド変更で書き換えない。
+      required: [roomCode, capacity, beds]
+      properties:
+        roomCode: { type: string }
+        capacity: { type: integer, minimum: 1 }
+        beds:
+          type: array
+          items:
+            type: object
+            required: [type, count]
+            properties:
+              type: { type: string, enum: [single, double, extra] }
+              count: { type: integer, minimum: 1 }
     WorkRecord:
       type: object
       required: [id, revision, workDate, plannedStartTime, masterRevisionId, status, hasSentReport, hasUnreportedChanges, onDutyEmployeeName, staffCount, participants, areas, areaGroups, images, breakTaken]
@@ -785,10 +800,12 @@ components:
         archived: { type: boolean }
     WorkHistory:
       type: object
-      required: [id, workDate, status, hasSentReport, hasUnreportedChanges, participants, areas, areaGroups, images, reportVersions]
+      required: [id, workDate, masterRevisionId, roomMasters, status, hasSentReport, hasUnreportedChanges, participants, areas, areaGroups, images, reportVersions]
       properties:
         id: { type: string }
         workDate: { type: string, format: date }
+        masterRevisionId: { type: string, description: この作業の開始時に固定したマスタ版ID }
+        roomMasters: { type: array, items: { $ref: '#/components/schemas/RoomMasterSnapshot' }, description: 対象客室について固定したマスタ版から取得した当時の定員・ベッド構成 }
         status: { type: string, enum: [Editing, Ready, Reporting, VerificationNeeded, Completed] }
         hasSentReport: { type: boolean }
         hasUnreportedChanges: { type: boolean }
@@ -807,7 +824,7 @@ components:
         missing: { type: array, items: { type: string } }
     ReportVersion:
       type: object
-      required: [id, workId, sequence, status, format, sourceRevision, confirmedBody, finalMessageBody, imagesSnapshot, createdAt, sendingStartedAt, sendingDeadlineAt]
+      required: [id, workId, sequence, status, format, sourceRevision, masterRevisionId, roomMastersSnapshot, confirmedBody, finalMessageBody, imagesSnapshot, createdAt, sendingStartedAt, sendingDeadlineAt]
       properties:
         id: { type: string }
         workId: { type: string }
@@ -817,6 +834,8 @@ components:
         format: { type: string, enum: [pdf, markdown] }
         markdownDelivery: { type: [string, 'null'], enum: [body, attachment, null] }
         sourceRevision: { type: integer, minimum: 1 }
+        masterRevisionId: { type: string, description: 報告確定時に作業が参照した不変のマスタ版ID }
+        roomMastersSnapshot: { type: array, items: { $ref: '#/components/schemas/RoomMasterSnapshot' }, description: 報告確定時の対象客室の定員・ベッド構成。後のマスタ変更でも不変。内容削除後は空配列 }
         confirmedBody: { type: [string, 'null'], description: 利用者が確認した編集済み本文。保存期限後に削除された版ではnull }
         finalMessageBody: { type: [string, 'null'], description: 報告ID・過去日付表示・生成報告内容を加えて確定したChatwork本文。保存期限後はnull }
         imagesSnapshot: { type: array, items: { $ref: '#/components/schemas/ReportImageSnapshot' }, description: 保存期限後に内容が削除された版では空配列 }

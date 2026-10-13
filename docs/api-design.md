@@ -26,7 +26,7 @@
 - 報告結果不明の確認は、その作業を作成して「当日担当職員」を入力したログイン利用者、またはIT担当者に許可する。自由入力の氏名だけで本人確認せず、サーバーが記録した作成者IDで照合する。
 - OAuthコールバックは`state`とPKCEに加え、接続を開始したIT担当者のログインセッションに結び付けて検証する。
 - 業務日と過去日付判定は`Asia/Tokyo`。APIの時刻はUTCオフセット付きRFC 3339、作業日は`YYYY-MM-DD`。
-- 開始済み作業の`masterRevisionId`は変えない。通知成功だけでは新版を作成・適用しない。編集者、内容確認者、確認記録、適用日の起点は要決定。
+- 開始済み作業の`masterRevisionId`は変えない。客室のベッド構成を含む旧マスタ版は参照する作業・報告版が残る間保持する。通知成功だけでは新版を作成・適用しない。編集者、内容確認者、確認記録、適用日の起点は要決定。
 - `WorkRecord.status=Completed`は送信済み実績を表し、後の修正・再送では戻さない。最新版の送信結果は`latestReportStatus`、未報告の修正は`hasUnreportedChanges`で別に示す。
 
 ## 3. 主なAPI操作
@@ -37,7 +37,7 @@
 | `GET /v1/master-revisions/current?workDate=...` | 作業日に有効なマスタを取得。作業開始後の自動切替なし。 |
 | `POST /v1/work-records` | 作業を開始し、マスタ版と予定開始9:55を固定する。人数は1〜5人。参加者は氏名とUUIDを別に持つ。 |
 | `GET/PATCH /v1/work-records/{workId}` | 入力中の作業を取得・保存。`revision`一致で更新。客室の大人・子ども・3値の作業種別、箇所／グループ別開始・終了と完了、3グループの対象数・実施数も更新する。トイレ・シャワーの個別箇所は持たない。対象・種別を変えても旧チェックは編集用データに保持。 |
-| `GET /v1/work-records/{workId}/history` | 過去記録画面用。対象から外した箇所とチェックは含めない。 |
+| `GET /v1/work-records/{workId}/history` | 過去記録画面用。対象から外した箇所とチェックは含めない。固定した`masterRevisionId`と、その版から取得した当時の客室定員・ベッド構成を返す。 |
 | `GET /v1/work-records?archived=true` | 設定画面のリンク先で表示する過去記録一覧。日付変更で過去扱い。 |
 | `GET /v1/work-records/{workId}/readiness` | 現在対象の箇所／グループの担当者、開始終了・完了、トイレ・シャワー・洗面の実施件数と選択数の一致、客室の種別別必須項目と大人・子ども、休憩回答を検査。共用部の旧詳細チェックは求めない。 |
 | `POST /v1/work-records/{workId}/images`、`DELETE /v1/work-records/{workId}/images/{imageId}` | 備考・トラブル画像を個別に追加・除外。画像IDと作業更新番号を維持し、本文の`PATCH`とは別に同期する。 |
