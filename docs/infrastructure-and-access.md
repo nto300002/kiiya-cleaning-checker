@@ -21,7 +21,7 @@
 - API用のCloud Runと、マスタ通知の再通知を実行する非公開のCloud Runワーカーを分ける。両方を`asia-northeast1`（東京）に配置する。5分後の再通知は同リージョンのCloud Tasksへ予約する。通知の最大2回という業務上限はアプリの状態・試行回数で判定し、タスク再配信時も同じ試行を重ねないよう照合する。ただしChatworkへの投稿結果不明時には重複投稿の可能性が残る。[Cloud Runのリージョン](https://docs.cloud.google.com/run/docs/locations) / [Cloud Tasksのリージョン](https://docs.cloud.google.com/tasks/docs/locations) / [予約実行](https://docs.cloud.google.com/tasks/docs/create-tasks) / [重複実行の注意](https://docs.cloud.google.com/tasks/docs/common-pitfalls)
 - 初期版では**グローバルのSecret Manager**を使う。Cloud Run標準のシークレット連携は地域指定のシークレットをサポートしていないため。秘密値の日本国内保存が要件になった場合は、東京の地域指定Secret ManagerをAPIから直接使う設計へ変更する。[Cloud Runのシークレット制約](https://docs.cloud.google.com/run/docs/configuring/services/secrets) / [Secret Managerの地域](https://docs.cloud.google.com/secret-manager/docs/locations)
 - Cloud SQLと画像用Cloud StorageはAPIと同じ東京リージョンに配置する。Cloud SQLの自動バックアップと復元手順、スキーマ移行手順、容量・可用性構成は環境構築時に具体化する。PWAの未同期入力と画像の端末内保存・再同期方式は別途技術設計で決める。
-- 費用見積もりでは、検証・本番のCloud SQL稼働費を固定費として先に確認し、Firebase Hostingの保存量・転送量、Cloud Run、Cloud Storage、Cloud Tasksなどの従量料金を加える。利用人数・画像量と環境の稼働条件が未定のため、月額の確定値はまだない。[Cloud SQLの料金](https://cloud.google.com/sql/pricing) / [Firebase Hostingの料金](https://firebase.google.com/docs/hosting/usage-quotas-pricing)
+- 月額費用は**MVPを実運用しながら、検証・本番プロジェクト別の請求実績を見て判断する**。稼働前の月額見積もりを初期構成の採用条件にはしない。運用開始時に請求レポートの閲覧担当と予算アラートの通知先を設定し、運用中はCloud SQL、Firebase Hosting、Cloud Run、Cloud Storage、Cloud Tasksなどのサービス別費用と利用量を確認する。アラートは通常の設定では支出を自動停止しない。[Cloud Billingレポート](https://docs.cloud.google.com/billing/docs/how-to/reports) / [予算アラート](https://docs.cloud.google.com/billing/docs/how-to/budgets)
 
 ## 3. 秘密情報の置き場所〔決定〕
 
@@ -50,7 +50,8 @@ Secret Managerの権限はプロジェクト全体ではなく対象シークレ
 ## 5. 環境構築時に登録する値
 
 - 検証用・本番用のGoogle CloudプロジェクトIDと請求先。
-- Cloud SQLの容量・可用性構成、バックアップ保持期間と復元担当者、スキーマ移行の実施担当者。想定利用人数・画像量を使った月額見積もり。
+- Cloud SQLの容量・可用性構成、バックアップ保持期間と復元担当者、スキーマ移行の実施担当者。
+- MVP運用中に費用実績を確認する担当者、予算アラートの通知先と暫定的な通知額。月額見積もりは実績が得られてから更新する。
 - 投稿に使う既存社員のChatworkアカウント、各環境のOAuthクライアントとコールバックURL。
 - 本番手動テストで確認した本番ridとルーム名。検証用ridの値は公開リポジトリに含めない。
 - Google Cloud環境の管理担当者と、アプリ内の社内IT担当者。
