@@ -132,6 +132,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WorkRecord' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /v1/work-records/{workId}/history:
@@ -177,6 +179,8 @@ paths:
                 properties:
                   image: { $ref: '#/components/schemas/WorkImageAttachment' }
                   revision: { type: integer, minimum: 1 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /v1/work-records/{workId}/images/{imageId}:
@@ -198,6 +202,8 @@ paths:
                 required: [revision]
                 properties:
                   revision: { type: integer, minimum: 1 }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /v1/work-records/{workId}/images/{imageId}/content:
@@ -244,6 +250,8 @@ paths:
                 properties:
                   firstReportButtonPressedAt: { type: string, format: date-time }
                   pastDateConfirmationRequired: { type: boolean }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /v1/work-records/{workId}/report-preview:
     post:
@@ -302,6 +310,8 @@ paths:
                       toilets: { type: integer, minimum: 0, maximum: 2 }
                       showers: { type: integer, minimum: 0, maximum: 3 }
                       washbasins: { type: integer, minimum: 0, maximum: 3 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /v1/report-previews/{previewId}/content:
     get:
@@ -337,7 +347,7 @@ paths:
     post:
       tags: [Report]
       operationId: submitReportVersion
-      description: 確認ダイアログの「完了」に対応。作業更新番号と編集済み本文を受け取り、Sendingの版を初めて作る。202は投稿成功を意味しない。最新版がSendingまたはUnknownなら409。
+      description: 確認ダイアログの「完了」に対応。PDFと各画像をChatworkの5 MB制限内に生成できることを先に確認し、作業更新番号と編集済み本文からSending版を作る。全必須成果物の投稿成功時だけSent。部分成功・結果不明はUnknown。202は投稿成功を意味しない。最新版がSendingまたはUnknownなら409。
       parameters:
         - { $ref: '#/components/parameters/WorkId' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
@@ -359,6 +369,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReportVersion' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '503': { $ref: '#/components/responses/Unavailable' }
@@ -388,11 +400,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [posted, evidence]
+              required: [posted, evidence, artifactResults]
               properties:
                 posted: { type: boolean }
                 evidence: { type: string, minLength: 1 }
                 chatworkMessageId: { type: string }
+                artifactResults: { type: array, items: { type: object, required: [number, posted], properties: { number: { type: integer, minimum: 1 }, posted: { type: boolean }, chatworkId: { type: string } } }, description: 全必須成果物の確認結果。部分成功は報告全体をUnknownとする }
       responses:
         '200':
           description: 確認結果を反映した版
@@ -468,7 +481,7 @@ paths:
     post:
       tags: [Master]
       operationId: createMasterChange
-      description: 変更候補の契約案。承認要件は保留中で、申請確定・通知開始は行わない。
+      description: 変更候補の下書きを作る。申請確定と通知はsubmitで行う。
       parameters:
         - { $ref: '#/components/parameters/IdempotencyKey' }
       requestBody:
@@ -499,10 +512,20 @@ paths:
     post:
       tags: [Master]
       operationId: submitMasterChange
-      description: 承認条件が担当者との協議で確定するまで契約・実装を保留する。現時点で呼び出し不可。
+      description: 当日の担当職員が別職員1名の承認取得を自己申告し、その職員名を記録して通知を開始する。
       parameters:
         - { $ref: '#/components/parameters/ChangeId' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approvalDeclared, approverEmployeeName]
+              properties:
+                approvalDeclared: { type: boolean, enum: [true], description: 別職員1名から承認を得たという申請者の自己申告 }
+                approverEmployeeName: { type: string, minLength: 1, description: 承認した別職員の氏名。本人認証には使わない }
       responses:
         '202':
           description: 現在有効な元版と環境ごとの変更枠を確保して通知を開始。新版はまだ適用しない。
@@ -515,6 +538,79 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MasterChangeConflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/master-changes/{changeId}/candidate:
+    patch:
+      tags: [Master]
+      operationId: updateMasterCandidate
+      description: Notified以降の候補を全職員が編集。編集者IDを記録し、既存の確認は無効化する。
+      parameters:
+        - { $ref: '#/components/parameters/ChangeId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, candidate]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                candidate: { $ref: '#/components/schemas/MasterCandidate' }
+      responses:
+        '200': { description: 更新後の候補, content: { application/json: { schema: { $ref: '#/components/schemas/MasterChange' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/master-changes/{changeId}/request-review:
+    post:
+      tags: [Master]
+      operationId: requestMasterReview
+      description: 差分と完成版を別職員の確認待ちにする。
+      parameters:
+        - { $ref: '#/components/parameters/ChangeId' }
+      responses:
+        '200': { description: 確認待ち, content: { application/json: { schema: { $ref: '#/components/schemas/MasterChange' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/master-changes/{changeId}/confirm:
+    post:
+      tags: [Master]
+      operationId: confirmMasterChange
+      description: 編集に参加していない別職員だけが差分と完成版を確認。元版と予約競合を検査し、翌日0:00日本時間適用の不変版を作る。
+      parameters:
+        - { $ref: '#/components/parameters/ChangeId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, candidateHash]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                candidateHash: { type: string, minLength: 1 }
+      responses:
+        '200': { description: 翌日適用を予約, content: { application/json: { schema: { $ref: '#/components/schemas/MasterChange' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/master-changes/{changeId}/withdraw:
+    post:
+      tags: [Master]
+      operationId: withdrawMasterChange
+      description: 申請者またはIT担当者が適用前の申請を理由付きで取り下げる。予約版は監査用に残す。
+      parameters:
+        - { $ref: '#/components/parameters/ChangeId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1 }
+      responses:
+        '200': { description: 取下げ完了, content: { application/json: { schema: { $ref: '#/components/schemas/MasterChange' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /v1/master-notification-evidence:
     get:
       tags: [Master]
@@ -830,7 +926,7 @@ components:
       properties:
         id: { type: string }
         workId: { type: string }
-        sequence: { type: integer, minimum: 1 }
+        sequence: { type: integer, minimum: 1, description: 作業ごとの単調増加番号。本文削除後も再利用しない }
         previousVersionId: { type: [string, 'null'] }
         status: { type: string, enum: [Sending, Sent, Failed, Unknown] }
         format: { type: string, enum: [pdf, markdown] }
@@ -840,7 +936,8 @@ components:
         roomMastersSnapshot: { type: array, items: { $ref: '#/components/schemas/RoomMasterSnapshot' }, description: 報告確定時の対象客室の定員・ベッド構成。後のマスタ変更でも不変。内容削除後は空配列 }
         confirmedBody: { type: [string, 'null'], description: 利用者が確認した編集済み本文。保存期限後に削除された版ではnull }
         finalMessageBody: { type: [string, 'null'], description: 報告ID・過去日付表示・生成報告内容を加えて確定したChatwork本文。保存期限後はnull }
-        imagesSnapshot: { type: array, items: { $ref: '#/components/schemas/ReportImageSnapshot' }, description: 保存期限後に内容が削除された版では空配列 }
+        imagesSnapshot: { type: array, items: { $ref: '#/components/schemas/ReportImageSnapshot' }, description: PDFに埋め込み、画像ファイルもChatworkへ送る。内容削除後は空配列 }
+        deliveryArtifacts: { type: array, items: { $ref: '#/components/schemas/ReportDeliveryArtifact' }, description: 本文・報告ファイル・各画像の送信結果 }
         createdAt: { type: string, format: date-time }
         sendingStartedAt: { type: string, format: date-time, description: 送信開始を永続化した時刻 }
         sendingDeadlineAt: { type: string, format: date-time, description: 送信開始から5分。期限時は投稿照合後に状態を確定する }
@@ -852,6 +949,18 @@ components:
         areaGroupsSnapshot: { type: array, items: { $ref: '#/components/schemas/WorkAreaGroupProgress' }, description: 送信時の3グループの件数・担当・時刻・完了の写し。内容削除後は空配列 }
         roomSupplyPlansSnapshot: { type: array, items: { $ref: '#/components/schemas/RoomSupplyPlan' }, description: 送信時に導出した備品数と設置場所の写し。内容削除後は空配列 }
         contentRetentionStatus: { type: string, enum: [indefinite, pendingVerification, untilDeadline, purged] }
+    ReportDeliveryArtifact:
+      type: object
+      required: [number, kind, status]
+      properties:
+        number: { type: integer, minimum: 1 }
+        kind: { type: string, enum: [message, reportFile, imageFile] }
+        imageId: { type: [string, 'null'] }
+        fileName: { type: [string, 'null'] }
+        bytes: { type: [integer, 'null'], maximum: 5242880, description: Chatworkに送る各ファイルは5 MB以下 }
+        sha256: { type: [string, 'null'] }
+        status: { type: string, enum: [Pending, Sending, Sent, Failed, Unknown] }
+        chatworkId: { type: [string, 'null'] }
     ChatworkSettings:
       type: object
       required: [connected, markdownDelivery]
@@ -864,7 +973,7 @@ components:
         reportTemplate: { type: string }
     CreateMasterChange:
       type: object
-      description: 変更候補のみ。承認記録項目は保留中で、この入力によって申請・通知は開始しない。
+      description: 変更候補の下書き。この入力では申請・通知は開始しない。
       required: [workId, baseRevisionId, candidate, onDutyEmployeeName]
       properties:
         workId: { type: string }
@@ -874,7 +983,7 @@ components:
     MasterCandidate:
       type: object
       required: [areas]
-      description: 通知結果をまだ持たない変更候補。適用開始日の設定は運用決定後。
+      description: 変更候補。編集に参加していない別職員の確認翌日0:00（日本時間）を適用開始とする。
       properties:
         areas:
           type: array
@@ -901,8 +1010,18 @@ components:
       required: [id, status, baseRevisionId, attempts]
       properties:
         id: { type: string }
-        status: { type: string, enum: [Draft, Ready, AwaitingNotification, Notified, ChangeFailed] }
+        status: { type: string, enum: [Draft, Ready, AwaitingNotification, Notified, MasterEditing, AwaitingReview, Scheduled, Applied, Withdrawn, ChangeFailed] }
         baseRevisionId: { type: string }
+        approvalDeclared: { type: boolean, description: 別職員1名の承認取得を申請者が自己申告 }
+        approverEmployeeName: { type: [string, 'null'] }
+        candidateRevision: { type: integer, minimum: 1 }
+        editorUserIds: { type: array, items: { type: string } }
+        reviewerUserId: { type: [string, 'null'] }
+        reviewedAt: { type: [string, 'null'], format: date-time }
+        candidateHash: { type: [string, 'null'] }
+        scheduledRevisionId: { type: [string, 'null'] }
+        effectiveAt: { type: [string, 'null'], format: date-time }
+        withdrawalReason: { type: [string, 'null'] }
         notificationPostedAt: { type: [string, 'null'], format: date-time }
         notificationConfirmedAt: { type: [string, 'null'], format: date-time }
         attempts:
