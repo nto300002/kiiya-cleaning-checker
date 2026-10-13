@@ -110,7 +110,7 @@ paths:
     get:
       tags: [Work]
       operationId: getWorkRecord
-      description: 編集用。対象から外した箇所の保存済み結果も含む。
+      description: 編集用。対象から外した客室などの保存済み結果も含む。トイレ・シャワーは個別箇所ではなくグループの対象数で返す。
       responses:
         '200':
           description: 作業記録
@@ -249,7 +249,7 @@ paths:
     post:
       tags: [Report]
       operationId: createReportPreview
-      description: 結果画面用の一時プレビュー。客室種別・人数別備品数・配置先、箇所別時刻と実施件数を含む。「編集する」のOKで端末内の本文を更新し、キャンセルで破棄する。報告ボタン初回押下時刻、報告版、版番号を作らない。
+      description: 結果画面用の一時プレビュー。客室種別・人数別備品数・配置先、箇所別時刻とグループの対象数・実施数を含む。トイレ・シャワーの個別番号は含めない。「編集する」のOKで端末内の本文を更新し、キャンセルで破棄する。報告ボタン初回押下時刻、報告版、版番号を作らない。
       parameters:
         - { $ref: '#/components/parameters/WorkId' }
       requestBody:
@@ -268,7 +268,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [sourceRevision, format, previewId, defaultEditableBody, imageIds, roomSupplyPlans, areaTimes, completedCounts]
+                required: [sourceRevision, format, previewId, defaultEditableBody, imageIds, roomSupplyPlans, areaTimes, targetCounts, completedCounts]
                 properties:
                   sourceRevision: { type: integer, minimum: 1 }
                   format: { type: string, enum: [pdf, markdown] }
@@ -286,9 +286,17 @@ paths:
                         code: { type: string }
                         startedAt: { type: string, format: date-time }
                         finishedAt: { type: string, format: date-time }
+                  targetCounts:
+                    type: object
+                    description: トイレ・シャワーの箇所数のみの対象指定と、常時対象の洗面3か所。個別の場所は示さない。
+                    required: [toilets, showers, washbasins]
+                    properties:
+                      toilets: { type: integer, minimum: 0, maximum: 2 }
+                      showers: { type: integer, minimum: 0, maximum: 3 }
+                      washbasins: { type: integer, const: 3 }
                   completedCounts:
                     type: object
-                    description: トイレ・シャワー・洗面のプルダウンで入力した実施箇所数。個別箇所の完了数からの自動集計ではない。
+                    description: トイレ・シャワー・洗面のプルダウンで入力した実施箇所数。各targetCounts以下で、個別箇所の完了数からの自動集計ではない。
                     required: [toilets, showers, washbasins]
                     properties:
                       toilets: { type: integer, minimum: 0, maximum: 2 }
@@ -677,6 +685,7 @@ components:
         participants: { type: array, minItems: 1, maxItems: 5, items: { $ref: '#/components/schemas/WorkParticipant' } }
     WorkArea:
       type: object
+      description: 客室・ラウンジ・追加4箇所の作業対象。トイレ・シャワーの個別箇所は作成せず、WorkAreaGroupProgressの対象数で扱う。
       required: [code, selected, assigneeIds, checks]
       properties:
         code: { type: string }
@@ -684,7 +693,7 @@ components:
         assigneeIds: { type: array, uniqueItems: true, items: { type: string, format: uuid }, description: 同じ作業の参加者IDだけを指定 }
         startedAt: { type: [string, 'null'], format: date-time, description: '客室・ラウンジ・追加4箇所の実開始。トイレ・シャワー・洗面はグループ側に記録' }
         finishedAt: { type: [string, 'null'], format: date-time }
-        completed: { type: boolean, description: 客室・ラウンジ・追加4箇所で使用。3グループの個別箇所では使用しない }
+        completed: { type: boolean, description: 客室・ラウンジ・追加4箇所で使用。トイレ・シャワー・洗面の進捗はグループで記録する }
         checks:
           type: object
           description: 客室の現在の作業種別に適用する項目のみ準備判定・報告に含める。旧種別の回答は内部保持。
@@ -699,11 +708,12 @@ components:
             exceptionNote: { type: string }
     WorkAreaGroupProgress:
       type: object
-      description: トイレ・シャワー・洗面の種類ごとの進捗。個別箇所の対象はWorkAreaに保持する。
-      required: [kind, completedCount, assigneeIds, completed]
+      description: トイレ・シャワー・洗面の種類ごとの進捗。対象数と実施数を直接保持し、トイレ・シャワーの個別箇所は指定しない。
+      required: [kind, targetCount, completedCount, assigneeIds, completed]
       properties:
         kind: { type: string, enum: [toilets, showers, washbasins] }
-        completedCount: { type: integer, minimum: 0, description: プルダウン入力。対象の個別箇所数以下で、完了時は一致が必要 }
+        targetCount: { type: integer, minimum: 0, maximum: 3, description: 対象箇所数。toiletsは0〜2、showersは0〜3、washbasinsは常に3。種類ごとの制約をサーバー側で検証 }
+        completedCount: { type: integer, minimum: 0, maximum: 3, description: 実施箇所数。targetCount以下で、完了時は一致が必要。対象数0のトイレ・シャワーは報告対象外 }
         assigneeIds: { type: array, uniqueItems: true, items: { type: string, format: uuid } }
         startedAt: { type: [string, 'null'], format: date-time }
         finishedAt: { type: [string, 'null'], format: date-time }
@@ -845,7 +855,7 @@ components:
     MasterCandidate:
       type: object
       required: [areas]
-      description: 通知成功日と適用開始日をまだ持たない変更候補。
+      description: 通知結果をまだ持たない変更候補。適用開始日の設定は運用決定後。
       properties:
         areas:
           type: array
@@ -872,9 +882,8 @@ components:
       required: [id, status, baseRevisionId, attempts]
       properties:
         id: { type: string }
-        status: { type: string, enum: [Draft, Ready, AwaitingNotification, Scheduled, Applied, ChangeFailed] }
+        status: { type: string, enum: [Draft, Ready, AwaitingNotification, Notified, ChangeFailed] }
         baseRevisionId: { type: string }
-        effectiveDate: { type: [string, 'null'], format: date }
         notificationPostedAt: { type: [string, 'null'], format: date-time }
         notificationConfirmedAt: { type: [string, 'null'], format: date-time }
         attempts:
