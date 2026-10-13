@@ -468,6 +468,7 @@ paths:
     post:
       tags: [Master]
       operationId: createMasterChange
+      description: 変更候補の契約案。承認要件は保留中で、申請確定・通知開始は行わない。
       parameters:
         - { $ref: '#/components/parameters/IdempotencyKey' }
       requestBody:
@@ -498,6 +499,7 @@ paths:
     post:
       tags: [Master]
       operationId: submitMasterChange
+      description: 承認条件が担当者との協議で確定するまで契約・実装を保留する。現時点で呼び出し不可。
       parameters:
         - { $ref: '#/components/parameters/ChangeId' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
@@ -862,15 +864,13 @@ components:
         reportTemplate: { type: string }
     CreateMasterChange:
       type: object
-      required: [workId, baseRevisionId, candidate, onDutyEmployeeName, approvalDeclared, kiiyaApproverName, employeeApproverName]
+      description: 変更候補のみ。承認記録項目は保留中で、この入力によって申請・通知は開始しない。
+      required: [workId, baseRevisionId, candidate, onDutyEmployeeName]
       properties:
         workId: { type: string }
         baseRevisionId: { type: string }
         candidate: { $ref: '#/components/schemas/MasterCandidate' }
         onDutyEmployeeName: { type: string, minLength: 1 }
-        approvalDeclared: { type: boolean, const: true }
-        kiiyaApproverName: { type: string, minLength: 1 }
-        employeeApproverName: { type: string, minLength: 1 }
     MasterCandidate:
       type: object
       required: [areas]
