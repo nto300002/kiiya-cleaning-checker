@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | プロジェクト表示名 | KIIYA Cleaning Checker Staging | KIIYA Cleaning Checker Production |
 | 作成予定のプロジェクトID | `kiiya-cleaning-stg-cd72a4` | `kiiya-cleaning-prod-cd72a4` |
-| 請求先 | 「請求先アカウント 1」（利用可能であることを確認済み） | 同左 |
+| 請求先 | 選定済みの有効請求先（具体値は非追跡の運用台帳） | 同左 |
 | 配置リージョン | `asia-northeast1`（東京） | `asia-northeast1`（東京） |
 | Cloud Run | `kiiya-api`、非公開の`kiiya-worker` | 同じ名前で別プロジェクトに配置 |
 | Cloud SQL | `kiiya-pg-stg`、PostgreSQL 16／Cloud SQL Enterprise、単一ゾーン、`db-f1-micro`、SSD 10 GiBから開始 | `kiiya-pg-prod`、PostgreSQL 16／Cloud SQL Enterprise、単一ゾーン、`db-g1-small`、SSD 10 GiBから開始 |
@@ -38,10 +38,10 @@ flowchart LR
 
 | 作業 | 主担当 | 実行・確認 |
 | --- | --- | --- |
-| プロジェクト作成、請求先接続、IAM、API有効化 | `samonkntd@gmail.com` | 本人が実行し、両プロジェクトのID・請求先・権限を台帳で確認 |
-| Cloud SQL設定、日次バックアップ監視、復元、マイグレーション | `samonkntd@gmail.com` | 本人が実行し、操作日時・バックアップID・復元先・検証結果を運用記録へ残す |
-| Cloud Run・Firebase Hostingの配備、障害時の切替 | `samonkntd@gmail.com` | 検証環境で先に成功させ、本番の反映結果を記録 |
-| 費用閲覧、予算アラートへの対応 | `samonkntd@gmail.com` | 検証・本番の請求実績を別々に確認 |
+| プロジェクト作成、請求先接続、IAM、API有効化 | 指定済みのGoogle Cloud主担当 | 本人が実行し、両プロジェクトのID・請求先・権限を台帳で確認 |
+| Cloud SQL設定、日次バックアップ監視、復元、マイグレーション | 指定済みのGoogle Cloud主担当 | 本人が実行し、操作日時・バックアップID・復元先・検証結果を運用記録へ残す |
+| Cloud Run・Firebase Hostingの配備、障害時の切替 | 指定済みのGoogle Cloud主担当 | 検証環境で先に成功させ、本番の反映結果を記録 |
+| 費用閲覧、予算アラートへの対応 | 指定済みのGoogle Cloud主担当 | 検証・本番の請求実績を別々に確認 |
 | アプリ内のChatwork接続・rid設定 | 登録する社内IT担当者 | アプリ内のIT権限を持つアカウントを運用開始時に登録。Google Cloud管理権限とは別 |
 
 復旧の代行者は当面置かない〔利用者確認済み〕。主担当のGoogleアカウントで二段階認証と復旧手段を有効にし、主担当不在時は復旧作業が遅れることを運用上の制約として明示する。サービスアカウントに人用の管理者権限を付けず、詳細なランタイム権限は[権限設計](infrastructure-and-access.md)に従う。
@@ -98,7 +98,7 @@ gcloud sql instances clone kiiya-pg-prod RECOVERY_NAME \
 
 ## 5. 費用と配備時の確認
 
-- 「請求先アカウント 1」を両プロジェクトへ紐付け、プロジェクトごとに予算アラートを設ける。仮の月額通知額は検証**1万円**、本番**3万円**、通知閾値は50%・90%・100%。これは支出上限ではなく警告で、最初の1か月の実績から調整する。[予算アラートの挙動](https://docs.cloud.google.com/billing/docs/how-to/budgets)
+- 選定済みの請求先を両プロジェクトへ紐付け、プロジェクトごとに予算アラートを設ける。主担当・請求先・仮の月額通知額はGit追跡外の`.local/environment-operations-private.md`に記録する。通知閾値は50%・90%・100%。これは支出上限ではなく警告で、最初の1か月の実績から通知額を調整する。[予算アラートの挙動](https://docs.cloud.google.com/billing/docs/how-to/budgets)
 - Cloud SQLの常時稼働、バックアップとPITRログ、画像のソフトデリート、四半期の復元演習で料金が増える。費用は検証・本番の請求レポートを週次で確認し、サービス別に記録する。初期構成の月額見積もりはMVPの実測値を得て更新する。
 - 配備順は **検証プロジェクト作成・請求先接続 → API有効化とIAM → Cloud SQL・Storage・Secret Manager・Tasks → 検証でマイグレーションと復元演習 → 本番構築 → 本番マイグレーション → Cloud Run API・ワーカー → Firebase Hosting → 実送信の手動確認**。本番用のChatwork投稿アカウントとridは手動テストで登録する。
 - 本書の値は**設定予定値**。プロジェクトID、請求先の紐付け、担当者のIAM、バックアップ成功、復元演習の実施結果を確認するまでは「構築済み」と表示しない。
