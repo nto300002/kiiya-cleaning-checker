@@ -17,10 +17,10 @@
 
 - サーバー環境は**Google Cloud Run**、秘密情報管理サービスは**Google Cloud Secret Manager**を採用する。社内にAWS環境はない。
 - 初期構成のフロントエンドは**React・TypeScriptのPWAをFirebase Hostingで配信**する。APIはCloud Run、永続データベースは**Cloud SQL for PostgreSQL**、画像は非公開の**Cloud Storage**を採用する。Firebase Hosting、Cloud Run、Cloud SQL、Cloud Storageを検証用・本番用の各Google Cloudプロジェクト内で分離する。VercelとCloudflareは初期構成には採用しない。
-- 検証環境と本番環境を**別のGoogle Cloudプロジェクト**に置く。プロジェクトID、請求先、運用担当者は環境構築時に登録する。検証用ridはローカル設定にあり、本番の投稿用社員とridは本番手動テスト時に設定する。各環境の有効な送信先は1ルームとする。
+- 検証環境と本番環境を**別のGoogle Cloudプロジェクト**に置く。作成予定のID、請求先、主担当、リソース名は[環境台帳・配備と復旧手順](environment-operations.md)で確定した。プロジェクトは未作成であり、IDの利用可能性は作成時に確定する。検証用ridはローカル設定にあり、本番の投稿用社員とridは本番手動テスト時に設定する。各環境の有効な送信先は1ルームとする。
 - API用のCloud Runと、マスタ通知の再通知を実行する非公開のCloud Runワーカーを分ける。両方を`asia-northeast1`（東京）に配置する。5分後の再通知は同リージョンのCloud Tasksへ予約する。通知の最大2回という業務上限はアプリの状態・試行回数で判定し、タスク再配信時も同じ試行を重ねないよう照合する。ただしChatworkへの投稿結果不明時には重複投稿の可能性が残る。[Cloud Runのリージョン](https://docs.cloud.google.com/run/docs/locations) / [Cloud Tasksのリージョン](https://docs.cloud.google.com/tasks/docs/locations) / [予約実行](https://docs.cloud.google.com/tasks/docs/create-tasks) / [重複実行の注意](https://docs.cloud.google.com/tasks/docs/common-pitfalls)
 - 初期版では**グローバルのSecret Manager**を使う。Cloud Run標準のシークレット連携は地域指定のシークレットをサポートしていないため。秘密値の日本国内保存が要件になった場合は、東京の地域指定Secret ManagerをAPIから直接使う設計へ変更する。[Cloud Runのシークレット制約](https://docs.cloud.google.com/run/docs/configuring/services/secrets) / [Secret Managerの地域](https://docs.cloud.google.com/secret-manager/docs/locations)
-- Cloud SQLと画像用Cloud StorageはAPIと同じ東京リージョンに配置する。Cloud SQLの自動バックアップと復元手順、スキーマ移行手順、容量・可用性構成は環境構築時に具体化する。PWAの未同期入力と画像の端末内保存・再同期方式は別途技術設計で決める。
+- Cloud SQLと画像用Cloud StorageはAPIと同じ東京リージョンに配置する。Cloud SQLの初期容量・単一ゾーン構成、日次14件の標準バックアップ、7日の時点復旧、復元・マイグレーション手順は[環境台帳・配備と復旧手順](environment-operations.md)に定める。PWAの未同期入力と画像の端末内保存・再同期方式は別途技術設計で決める。
 - 月額費用は**MVPを実運用しながら、検証・本番プロジェクト別の請求実績を見て判断する**。稼働前の月額見積もりを初期構成の採用条件にはしない。運用開始時に請求レポートの閲覧担当と予算アラートの通知先を設定し、運用中はCloud SQL、Firebase Hosting、Cloud Run、Cloud Storage、Cloud Tasksなどのサービス別費用と利用量を確認する。アラートは通常の設定では支出を自動停止しない。[Cloud Billingレポート](https://docs.cloud.google.com/billing/docs/how-to/reports) / [予算アラート](https://docs.cloud.google.com/billing/docs/how-to/budgets)
 
 ## 3. 秘密情報の置き場所〔決定〕
@@ -47,13 +47,13 @@
 
 Secret Managerの権限はプロジェクト全体ではなく対象シークレット単位で付ける。APIとワーカーは別のサービスアカウントとし、既定の広い権限を持つサービスアカウントを使わない。ユーザーから公開APIへの呼び出しではGoogleログインをサーバー側で検証し、IT担当者ロールの判定も画面表示だけでなくサーバー側で行う。[Secret ManagerのIAM](https://docs.cloud.google.com/secret-manager/docs/access-control) / [Cloud RunのサービスID](https://docs.cloud.google.com/run/docs/configuring/services/service-identity) / [Cloud TasksからCloud Runへの認証](https://docs.cloud.google.com/run/docs/triggering/using-tasks)
 
-## 5. 環境構築時に登録する値
+## 5. 環境構築時に確認・登録する値
 
-- 検証用・本番用のGoogle CloudプロジェクトIDと請求先。
-- Cloud SQLの容量・可用性構成、バックアップ保持期間と復元担当者、スキーマ移行の実施担当者。
-- MVP運用中に費用実績を確認する担当者、予算アラートの通知先と暫定的な通知額。月額見積もりは実績が得られてから更新する。
+- [環境台帳](environment-operations.md)に定めた検証用・本番用プロジェクトIDの作成結果と請求先の紐付け。ID衝突時は両環境の台帳を更新する。
+- Cloud SQLの初期容量・可用性構成、バックアップ保持期間、復元・マイグレーションの主担当は決定済み。構築後にバックアップ成功と復元演習の結果を記録する。
+- MVP運用中の費用閲覧・アラート対応の主担当と暫定通知額は決定済み。予算アラートの通知先を実際に設定し、月額見積もりを請求実績から更新する。
 - 投稿に使う既存社員のChatworkアカウント、各環境のOAuthクライアントとコールバックURL。
 - 本番手動テストで確認した本番ridとルーム名。検証用ridの値は公開リポジトリに含めない。
-- Google Cloud環境の管理担当者と、アプリ内の社内IT担当者。
+- Google Cloud環境の主担当は決定済み。復旧の代行者は当面置かない。アプリ内の社内IT担当者アカウントは運用開始時に登録する。
 
 関連文書: [要件定義](requirements.md)、[論理データ設計](data-design.md)、[Chatwork認証の実装案](chatwork-auth-plan.md)

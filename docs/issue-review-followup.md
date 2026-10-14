@@ -5,7 +5,7 @@
 | Issue | 反映する受け入れ条件・設計事項 |
 | --- | --- |
 | #2 | マスタ変更は別職員1名の承認取得を当日の担当職員が自己申告し氏名を記録する。編集・確認・適用も[決定文書](remaining-requirements-decisions.md)に定義した。トイレ・シャワーはv11に従い個別場所ではなく対象数で入力する。 |
-| #3 | 初期構成はReact・TypeScriptのPWAをFirebase Hostingで配信し、Cloud RunのAPI・ワーカー、Cloud SQL for PostgreSQL、非公開のCloud Storageを検証・本番の別Google Cloudプロジェクトに配置する。プロジェクトID・請求先・環境管理担当者、DBの容量・可用性・バックアップ・移行手順を環境構築時に確定する。月額費用はMVPの実運用中に請求実績から判断し、運用開始時に費用閲覧担当と予算アラート通知先を設定する。 |
+| #3 | 初期構成はReact・TypeScriptのPWAをFirebase Hostingで配信し、Cloud RunのAPI・ワーカー、Cloud SQL for PostgreSQL、非公開のCloud Storageを検証・本番の別Google Cloudプロジェクトに配置する。プロジェクトIDの候補、請求先、主担当、DBの初期容量・可用性・バックアップと移行手順は[環境台帳](environment-operations.md)に確定した。プロジェクトは未作成であり、費用見積もりはMVPの実運用中に請求実績から更新する。 |
 | #4 | 全職員が他人の作業を閲覧でき、作成者だけが編集する。同期済みデータのみ同じGoogleアカウントで復元し、複数端末競合は`409`。報告表示番号は作業ごとの単調増加連番。 |
 | #5 | PDFに画像を埋め込み、各画像ファイルもChatworkへ送信。Markdownには添付名を列挙する。5 MB制限と部分成功時の`Unknown`を検証する。 |
 | #7 | #27の送信停滞監視、#30の期限削除について、起動方法、担当、監視、失敗時再実行を定義する。 |

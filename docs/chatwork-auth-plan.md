@@ -45,7 +45,7 @@ Chatwork公式は認可コード方式をサポートし、コンフィデンシ
 
 ## 連携資格情報の保存方式〔決定〕
 
-社内にはAWS環境がないため、Google Cloud RunとSecret Managerを採用する。検証環境と本番環境を別プロジェクトに分ける。実際のプロジェクトIDと環境管理担当者は構築時に登録する。
+社内にはAWS環境がないため、Google Cloud RunとSecret Managerを採用する。検証環境と本番環境を別プロジェクトに分ける。作成予定のプロジェクトIDと環境管理の主担当は[環境台帳](environment-operations.md)に定め、作成結果を構築時に確認する。
 
 - 保存対象はOAuthクライアントシークレットと`offline_access`付きリフレッシュトークン。クライアントID、接続中の社員アカウント識別子、rid、秘密情報への参照は設定データに保持できる。短寿命のアクセストークンはサーバー側で使用し、スマートフォンや通常ログには渡さない。
 - Cloud Runの専用サービスアカウントに、Secret Manager内の`kiiya-chatwork-client-secret`と`kiiya-chatwork-refresh-token`の読み取り権限を付ける。リフレッシュトークンのシークレットに限り、新しい版の追加権限も付ける。アプリは実行時にSecret Manager APIから値を取得し、トークン再発行で新しい値を受けたら新しい版として保存する。IT担当者はアプリ上で接続状態・再接続を管理し、シークレット値自体は表示しない。[Secret Managerの推奨事項](https://docs.cloud.google.com/secret-manager/docs/best-practices) / [Secret Version Adder](https://docs.cloud.google.com/secret-manager/docs/access-control)
