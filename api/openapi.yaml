@@ -822,7 +822,7 @@ components:
         resolvedByUserId: { type: [string, 'null'], readOnly: true }
     WorkTaskProgress:
       type: object
-      description: 清掃作業の種類ごとの進捗。複数客室を同じ作業に紐付け、作業間の時間重複を許す。トイレ・洗面の実施件数は設けない。
+      description: 新版の清掃作業10種類の進捗。洗面周りはwashCorridorに統一し、旧「洗面周り床」用のwashFloorは設けない。複数客室を同じ作業に紐付け、作業間の時間重複を許す。トイレ・洗面の実施件数は設けない。
       required: [kind, unit, targetRoomCodes, assigneeIds, completed]
       properties:
         kind: { type: string, enum: [bedmaking, amenities, roomCleaning, roomCorridor, stairsEntrance, showers, lounge, washbasins, toilets, washCorridor] }
