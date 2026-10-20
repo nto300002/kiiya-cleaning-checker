@@ -809,7 +809,7 @@ components:
             exceptionNote: { type: string }
     RoomDefect:
       type: object
-      description: 客室の不備を個別IDで保持する。端末が生成したIDで登録し、同じIDのstatusをopenからresolvedへ変更して解消する。削除・ID再利用・checkCodeとdetailの上書きはしない。登録・解消時刻と操作者はサーバーが記録する。備考との分類基準と操作画面は#58で確定する。
+      description: 現地の当日担当職員が報告停止対象と判断した客室の不備を個別IDで保持する。作業記録の作成者だけが当該客室・項目から登録・解消できる。端末発行IDのstatusをopenからresolvedへ変更して解消する。削除・ID再利用・checkCodeとdetailの上書きはしない。登録・解消時刻と操作者はサーバーが記録し、対象チェックと職員最終確認を無効化する。備考は報告停止の自動判定に使わない。
       required: [id, checkCode, detail, status]
       properties:
         id: { type: string, format: uuid, description: 端末で生成し、オフライン再送でも維持する不変ID }
@@ -958,6 +958,7 @@ components:
         reportVersions: { type: array, items: { $ref: '#/components/schemas/ReportVersion' } }
     Readiness:
       type: object
+      description: 対象室が空の客室向け作業は必須判定から外す。客室ゼロ件では客室チェック・最終確認と客室向け3作業を判定しない。全室アメニティのみならベッドメイキング・部屋掃除を判定せず、アメニティセットは必須。共用部作業と休憩回答は引き続き判定する。
       required: [ready, missing]
       properties:
         ready: { type: boolean }
